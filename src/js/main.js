@@ -4,7 +4,7 @@ import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { readTextFile } from "@tauri-apps/plugin-fs";
 
 import { Sidebar } from "./sidebar.js";
-import { createCy, paintFocusedView, DEP_COLORS } from "./cy.js";
+import { createCy, paintFocusedView } from "./cy.js";
 
 const state = {
   schema: null,

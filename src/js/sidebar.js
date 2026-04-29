@@ -1,15 +1,5 @@
 // Sidebar UI: hierarchy schema builder, dependency toggles, coloring config.
-import { DEP_COLORS } from "./cy.js";
-
-const RECOGNISED_DEPS = [
-  "requires",
-  "specializes",
-  "returns",
-  "instantiates",
-  "typed",
-  "uses",
-  "invokes",
-];
+import { depColor } from "./cy.js";
 
 export class Sidebar {
   constructor(opts) {
@@ -17,6 +7,9 @@ export class Sidebar {
     this.summary = null;
     this.schemaLinks = []; // [{source, edge, target}]
     this.enabledDeps = new Set();
+    // Labels the user has explicitly unchecked. Persists across re-renders so
+    // toggling a label off doesn't get re-enabled when the dep list refreshes.
+    this.depsExplicitlyExcluded = new Set();
     this.coloring = { mode: "none", metricId: null, property: null };
 
     this._wireDisclosures();
@@ -89,11 +82,11 @@ export class Sidebar {
 
     // Seed default schema: every "containment-like" edge that exists.
     this.schemaLinks = [];
+    this.depsExplicitlyExcluded = new Set();
+    this.enabledDeps = new Set();
     document.getElementById("hierarchy-list").innerHTML = "";
     this._seedDefaultSchema();
-    this._renderHierarchy();
-
-    this._renderDepsList();
+    this._renderHierarchy(); // also refreshes the deps list
     this._renderColoringConfig();
   }
 
@@ -123,6 +116,8 @@ export class Sidebar {
     this.schemaLinks.forEach((link, idx) => {
       list.appendChild(this._linkRow(link, idx));
     });
+    // Schema edges are taken out of the dep pool — refresh that list.
+    this._renderDepsList();
   }
 
   _linkRow(link, idx) {
@@ -144,6 +139,7 @@ export class Sidebar {
     });
     edgeSel.addEventListener("change", () => {
       this.schemaLinks[idx].edge = edgeSel.value;
+      this._renderDepsList();
     });
     targetSel.addEventListener("change", () => {
       this.schemaLinks[idx].target = targetSel.value;
@@ -219,31 +215,58 @@ export class Sidebar {
   _renderDepsList() {
     const list = document.getElementById("deps-list");
     list.innerHTML = "";
-    const present = new Map(
-      (this.summary.edge_labels || []).map((s) => [s.label, s.count])
+    if (!this.summary) return;
+
+    const usedInSchema = new Set(
+      this.schemaLinks.map((l) => l.edge).filter(Boolean)
     );
-    this.enabledDeps = new Set();
-    for (const lbl of RECOGNISED_DEPS) {
-      const count = present.get(lbl) || 0;
+    const available = (this.summary.edge_labels || []).filter(
+      (s) => !usedInSchema.has(s.label)
+    );
+
+    // Sync enabledDeps: drop labels that are no longer available; default-add
+    // newly available labels unless the user previously unchecked them.
+    for (const lbl of [...this.enabledDeps]) {
+      if (usedInSchema.has(lbl)) this.enabledDeps.delete(lbl);
+    }
+    for (const stat of available) {
+      if (!this.depsExplicitlyExcluded.has(stat.label)) {
+        this.enabledDeps.add(stat.label);
+      }
+    }
+
+    if (available.length === 0) {
+      const hint = document.createElement("div");
+      hint.className = "hint";
+      hint.textContent =
+        "All edge labels are claimed by the hierarchy schema.";
+      list.appendChild(hint);
+      return;
+    }
+
+    for (const stat of available) {
       const row = document.createElement("label");
-      row.className = "dep-row" + (count === 0 ? " disabled-dep" : "");
+      row.className = "dep-row";
       const cb = document.createElement("input");
       cb.type = "checkbox";
-      cb.checked = count > 0;
-      cb.disabled = count === 0;
-      if (cb.checked) this.enabledDeps.add(lbl);
+      cb.checked = this.enabledDeps.has(stat.label);
       cb.addEventListener("change", () => {
-        if (cb.checked) this.enabledDeps.add(lbl);
-        else this.enabledDeps.delete(lbl);
+        if (cb.checked) {
+          this.enabledDeps.add(stat.label);
+          this.depsExplicitlyExcluded.delete(stat.label);
+        } else {
+          this.enabledDeps.delete(stat.label);
+          this.depsExplicitlyExcluded.add(stat.label);
+        }
       });
       const swatch = document.createElement("span");
       swatch.className = "swatch";
-      swatch.style.background = DEP_COLORS[lbl] || "#888";
+      swatch.style.background = depColor(stat.label);
       const name = document.createElement("span");
-      name.textContent = lbl;
+      name.textContent = stat.label;
       const cnt = document.createElement("span");
       cnt.className = "count";
-      cnt.textContent = count > 0 ? `${count}` : "—";
+      cnt.textContent = `${stat.count}`;
       row.appendChild(cb);
       row.appendChild(swatch);
       row.appendChild(name);

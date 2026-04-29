@@ -6,8 +6,9 @@ import coseBilkent from "cytoscape-cose-bilkent";
 cytoscape.use(fcose);
 cytoscape.use(coseBilkent);
 
-// Colours per dependency edge label (matches sidebar swatches)
-export const DEP_COLORS = {
+// Hand-picked colours for the well-known SABO dependency labels. Any other
+// label gets a deterministic hash-derived hue via depColor().
+const KNOWN_DEP_COLORS = {
   requires:     "#7c5cb3",
   specializes:  "#d97a3b",
   returns:      "#3aaf85",
@@ -16,6 +17,16 @@ export const DEP_COLORS = {
   uses:         "#9c5dbf",
   invokes:      "#c25577",
 };
+
+export function depColor(label) {
+  if (KNOWN_DEP_COLORS[label]) return KNOWN_DEP_COLORS[label];
+  let h = 0;
+  for (let i = 0; i < label.length; i++) {
+    h = (Math.imul(h, 31) + label.charCodeAt(i)) | 0;
+  }
+  const hue = ((h % 360) + 360) % 360;
+  return `hsl(${hue}, 50%, 45%)`;
+}
 
 // Per-node-type fill (used when coloring mode is "none")
 const TYPE_COLORS = {
@@ -193,7 +204,7 @@ export function paintFocusedView(cy, view, coloring) {
       source: e.source,
       target: e.target,
       _label: e.label,
-      _color: DEP_COLORS[e.label] || "#888",
+      _color: depColor(e.label),
     },
   }));
 
