@@ -460,16 +460,82 @@ fn focused_view(
     for c in &children {
         neighbours.remove(c);
     }
-    // Don't double-list the focused node itself
+    // Don't double-list the focused node itself, or its parent (already in view).
     neighbours.remove(focused_id);
+    if let Some(fp) = &focused_parent {
+        neighbours.remove(fp);
+    }
 
-    // Hierarchy parents of neighbours
-    let mut neighbour_parents: BTreeSet<String> = BTreeSet::new();
+    // For each neighbour, decide its compound parent in the cytoscape view.
+    //
+    // If walking up the neighbour's hierarchy ancestor chain reaches the
+    // focused node's parent (`focused_parent`), render the entire chain
+    // (excluding focused_parent itself) as nested NeighbourParent compounds
+    // that all eventually nest under focused_parent. Otherwise, fall back to
+    // the immediate hierarchy parent as a free-floating compound.
+    let mut neighbour_compound_parent: HashMap<String, Option<String>> = HashMap::new();
+    // chain_compounds: id -> Some(cytoscape parent) if nested, None if free-floating.
+    let mut chain_compounds: BTreeMap<String, Option<String>> = BTreeMap::new();
+
     for n_id in &neighbours {
-        if let Some(p) = h.parent_of.get(n_id) {
-            // exclude the focused node and its parent (those are already in view in different roles)
-            if p != focused_id && Some(p.clone()) != focused_parent {
-                neighbour_parents.insert(p.clone());
+        let direct_parent = h.parent_of.get(n_id).cloned();
+
+        // Walk upward looking for focused_parent. Stop at focused_id so we
+        // don't accidentally cross through the focused subtree.
+        let mut chain: Vec<String> = Vec::new();
+        let mut hit_fp = false;
+        if let Some(fp) = focused_parent.as_deref() {
+            let mut cur = direct_parent.clone();
+            while let Some(c) = cur {
+                if c.as_str() == fp {
+                    hit_fp = true;
+                    break;
+                }
+                if c.as_str() == focused_id {
+                    break;
+                }
+                chain.push(c.clone());
+                cur = h.parent_of.get(&c).cloned();
+            }
+        }
+
+        if hit_fp {
+            // chain[0] is N's direct parent (when non-empty); chain.last()'s
+            // hierarchy parent is focused_parent. If chain is empty, N's
+            // direct parent IS focused_parent.
+            let np = if chain.is_empty() {
+                focused_parent.clone()
+            } else {
+                Some(chain[0].clone())
+            };
+            neighbour_compound_parent.insert(n_id.clone(), np);
+            for (i, c) in chain.iter().enumerate() {
+                let cp = if i + 1 < chain.len() {
+                    Some(chain[i + 1].clone())
+                } else {
+                    focused_parent.clone()
+                };
+                chain_compounds.entry(c.clone()).or_insert(cp);
+            }
+        } else {
+            // Fallback: render N's direct parent as a free-floating compound,
+            // unless that parent is already in view (focused, focused_parent,
+            // or a child of focused) in which case just point at it directly.
+            match direct_parent {
+                None => {
+                    neighbour_compound_parent.insert(n_id.clone(), None);
+                }
+                Some(p)
+                    if p.as_str() == focused_id
+                        || Some(p.as_str()) == focused_parent.as_deref()
+                        || child_set.contains(p.as_str()) =>
+                {
+                    neighbour_compound_parent.insert(n_id.clone(), Some(p));
+                }
+                Some(p) => {
+                    chain_compounds.entry(p.clone()).or_insert(None);
+                    neighbour_compound_parent.insert(n_id.clone(), Some(p));
+                }
             }
         }
     }
@@ -508,25 +574,33 @@ fn focused_view(
             nodes_out.push(to_view(n, NodeRole::Child, Some(focused_id.to_string())));
         }
     }
-    // neighbour parents (compounds)
-    for np_id in &neighbour_parents {
-        if let Some(n) = by_id.get(np_id.as_str()).copied() {
-            nodes_out.push(to_view(n, NodeRole::NeighbourParent, None));
+    // chain compounds (neighbour ancestors), each with its own cytoscape
+    // parent so the nesting chains naturally up to focused_parent.
+    for (c_id, cp) in &chain_compounds {
+        if c_id.as_str() == focused_id {
+            continue;
+        }
+        if Some(c_id.as_str()) == focused_parent.as_deref() {
+            continue;
+        }
+        if child_set.contains(c_id.as_str()) {
+            continue;
+        }
+        if neighbours.contains(c_id) {
+            continue;
+        }
+        if let Some(n) = by_id.get(c_id.as_str()).copied() {
+            nodes_out.push(to_view(n, NodeRole::NeighbourParent, cp.clone()));
         }
     }
     // neighbours
     for n_id in &neighbours {
         if let Some(n) = by_id.get(n_id.as_str()).copied() {
-            let parent_id = h.parent_of.get(n_id).cloned();
-            // only set cytoscape parent if that parent is in our view
-            let parent_in_view = parent_id
-                .as_deref()
-                .filter(|p| neighbour_parents.contains(*p));
-            nodes_out.push(to_view(
-                n,
-                NodeRole::Neighbour,
-                parent_in_view.map(|s| s.to_string()),
-            ));
+            let parent = neighbour_compound_parent
+                .get(n_id)
+                .cloned()
+                .flatten();
+            nodes_out.push(to_view(n, NodeRole::Neighbour, parent));
         }
     }
 
