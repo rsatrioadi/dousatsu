@@ -63,7 +63,9 @@ export class Sidebar {
 
   _wireAddLinkBtn() {
     document.getElementById("add-link-btn").addEventListener("click", () => {
-      this._addLinkRow(this._defaultLink());
+      if (!this.summary) return;
+      this.schemaLinks.push(this._defaultLink());
+      this._renderHierarchy();
     });
   }
 
