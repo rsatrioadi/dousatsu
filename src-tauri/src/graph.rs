@@ -436,11 +436,14 @@ fn focused_view(
         }
     }
 
-    // Collect dependency edges, "lifted" up the ancestry: an edge between two
-    // descendants of different children is rendered at the children level. An
-    // edge between a child's descendant and an external node is rendered with
-    // the child-side endpoint lifted to the child. Intra-child edges are
-    // suppressed (they belong to a deeper level).
+    // Collect dependency edges. Originals (where one or both endpoints are
+    // direct children of focused) follow the spec verbatim — the off-child
+    // endpoint becomes a dependency-neighbour. Lifted edges are added on top:
+    // an edge whose endpoints are deep descendants is also rendered between
+    // their children-of-focused projections, so e.g. operation invocations
+    // surface as type-type edges when focused on a file. Lifting NEVER turns
+    // a deep-descendant→external edge into a child→external edge — that
+    // would invent neighbours that don't exist at the original level.
     let mut neighbours: BTreeSet<String> = BTreeSet::new();
     let mut dep_edges: Vec<EdgeView> = Vec::new();
     let mut emitted: HashSet<(String, String, String)> = HashSet::new();
@@ -451,23 +454,64 @@ fn focused_view(
         }
         let ps = subtree_to_child.get(&e.source).cloned();
         let pt = subtree_to_child.get(&e.target).cloned();
+        let s_is_child = ps
+            .as_deref()
+            .map(|p| p == e.source.as_str())
+            .unwrap_or(false);
+        let t_is_child = pt
+            .as_deref()
+            .map(|p| p == e.target.as_str())
+            .unwrap_or(false);
+        let s_in_subtree = ps.is_some();
+        let t_in_subtree = pt.is_some();
 
-        // Edge entirely outside focused's subtree.
-        if ps.is_none() && pt.is_none() {
+        let (vs, vt, lifted) = if s_is_child && t_is_child {
+            // Both direct children — original sibling edge.
+            (e.source.clone(), e.target.clone(), false)
+        } else if s_is_child && !t_in_subtree {
+            // Child → external: original. External becomes neighbour.
+            (e.source.clone(), e.target.clone(), false)
+        } else if t_is_child && !s_in_subtree {
+            // External → child: original. External becomes neighbour.
+            (e.source.clone(), e.target.clone(), false)
+        } else if s_is_child && t_in_subtree {
+            // Child → deeper descendant. Lift t to its child-of-focused.
+            let pt_id = pt.clone().expect("t_in_subtree");
+            if pt_id == e.source {
+                // descends from s — keep only if it's a true self-loop.
+                if e.source == e.target {
+                    (e.source.clone(), e.target.clone(), false)
+                } else {
+                    continue;
+                }
+            } else {
+                (e.source.clone(), pt_id, true)
+            }
+        } else if t_is_child && s_in_subtree {
+            let ps_id = ps.clone().expect("s_in_subtree");
+            if ps_id == e.target {
+                if e.source == e.target {
+                    (e.source.clone(), e.target.clone(), false)
+                } else {
+                    continue;
+                }
+            } else {
+                (ps_id, e.target.clone(), true)
+            }
+        } else if s_in_subtree && t_in_subtree {
+            // Both deep descendants of (potentially different) children.
+            let ps_id = ps.clone().expect("s_in_subtree");
+            let pt_id = pt.clone().expect("t_in_subtree");
+            if ps_id == pt_id {
+                continue; // intra-child
+            }
+            (ps_id, pt_id, true)
+        } else {
+            // Either both external, or one deep + one external. Skip — we
+            // do NOT lift to invent a child↔external edge.
             continue;
-        }
-        // Edge internal to a single child's subtree.
-        if ps.is_some() && ps == pt {
-            continue;
-        }
+        };
 
-        let vs = ps.clone().unwrap_or_else(|| e.source.clone());
-        let vt = pt.clone().unwrap_or_else(|| e.target.clone());
-
-        if vs == vt {
-            continue;
-        }
-        // Don't draw edges to/from the focused container itself.
         if vs.as_str() == focused_id || vt.as_str() == focused_id {
             continue;
         }
@@ -477,7 +521,6 @@ fn focused_view(
             continue;
         }
 
-        let lifted = vs.as_str() != e.source.as_str() || vt.as_str() != e.target.as_str();
         let edge_id = if lifted {
             format!("lift:{}:{}->{}", e.label, vs, vt)
         } else {
@@ -486,16 +529,17 @@ fn focused_view(
 
         dep_edges.push(EdgeView {
             id: edge_id,
-            source: vs.clone(),
-            target: vt.clone(),
+            source: vs,
+            target: vt,
             label: e.label.clone(),
         });
 
-        // External endpoints become dependency-neighbours.
-        if ps.is_none() {
+        // Neighbours: the off-child endpoint of an *original* (un-lifted)
+        // edge that touches a child of focused.
+        if !s_in_subtree {
             neighbours.insert(e.source.clone());
         }
-        if pt.is_none() {
+        if !t_in_subtree {
             neighbours.insert(e.target.clone());
         }
     }
