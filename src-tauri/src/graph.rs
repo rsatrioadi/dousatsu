@@ -1,0 +1,639 @@
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use tauri::State;
+
+use crate::AppState;
+
+// -----------------------------------------------------------------------------
+// Domain types
+// -----------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Node {
+    pub id: String,
+    pub labels: Vec<String>,
+    #[serde(default)]
+    pub properties: BTreeMap<String, Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Edge {
+    pub id: String,
+    pub source: String,
+    pub target: String,
+    pub label: String,
+    #[serde(default)]
+    pub properties: BTreeMap<String, Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct Elements {
+    pub nodes: Vec<Node>,
+    pub edges: Vec<Edge>,
+}
+
+// -----------------------------------------------------------------------------
+// JSON parsing (lenient — accepts any of the SABO-like shapes)
+// -----------------------------------------------------------------------------
+
+fn parse_elements(json: &str) -> Result<Elements, String> {
+    let v: Value = serde_json::from_str(json).map_err(|e| format!("invalid JSON: {e}"))?;
+    let elements = v
+        .get("elements")
+        .ok_or_else(|| "missing top-level `elements`".to_string())?;
+    let raw_nodes = elements
+        .get("nodes")
+        .and_then(|n| n.as_array())
+        .ok_or_else(|| "missing `elements.nodes`".to_string())?;
+    let raw_edges = elements
+        .get("edges")
+        .and_then(|n| n.as_array())
+        .ok_or_else(|| "missing `elements.edges`".to_string())?;
+
+    let mut nodes = Vec::with_capacity(raw_nodes.len());
+    for (i, n) in raw_nodes.iter().enumerate() {
+        let data = n.get("data").unwrap_or(n);
+        let id = data
+            .get("id")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| format!("node[{i}] missing id"))?
+            .to_string();
+        let labels = match data.get("labels") {
+            Some(Value::Array(arr)) => arr
+                .iter()
+                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                .collect(),
+            Some(Value::String(s)) => vec![s.clone()],
+            _ => Vec::new(),
+        };
+        let properties = match data.get("properties") {
+            Some(Value::Object(map)) => map
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect::<BTreeMap<_, _>>(),
+            _ => BTreeMap::new(),
+        };
+        nodes.push(Node {
+            id,
+            labels,
+            properties,
+        });
+    }
+
+    let mut edges = Vec::with_capacity(raw_edges.len());
+    for (i, e) in raw_edges.iter().enumerate() {
+        let data = e.get("data").unwrap_or(e);
+        let id = data
+            .get("id")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| format!("e{i}"));
+        let source = data
+            .get("source")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| format!("edge[{i}] missing source"))?
+            .to_string();
+        let target = data
+            .get("target")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| format!("edge[{i}] missing target"))?
+            .to_string();
+        let label = data
+            .get("label")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| format!("edge[{i}] missing label"))?
+            .to_string();
+        let properties = match data.get("properties") {
+            Some(Value::Object(map)) => map
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect::<BTreeMap<_, _>>(),
+            _ => BTreeMap::new(),
+        };
+        edges.push(Edge {
+            id,
+            source,
+            target,
+            label,
+            properties,
+        });
+    }
+
+    Ok(Elements { nodes, edges })
+}
+
+// -----------------------------------------------------------------------------
+// Summary
+// -----------------------------------------------------------------------------
+
+#[derive(Debug, Serialize)]
+pub struct EdgeTypeStat {
+    pub label: String,
+    pub count: usize,
+    pub source_target_pairs: Vec<(String, String, usize)>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct GraphSummary {
+    pub node_count: usize,
+    pub edge_count: usize,
+    pub node_labels: Vec<(String, usize)>,
+    pub edge_labels: Vec<EdgeTypeStat>,
+    pub metric_nodes: Vec<MetricRef>,
+    pub measure_properties: Vec<String>,
+    pub has_implements: bool,
+}
+
+#[derive(Debug, Serialize)]
+pub struct MetricRef {
+    pub id: String,
+    pub name: String,
+}
+
+fn primary_label(n: &Node) -> &str {
+    n.labels.first().map(|s| s.as_str()).unwrap_or("")
+}
+
+fn summarize(elements: &Elements) -> GraphSummary {
+    let mut node_labels: HashMap<String, usize> = HashMap::new();
+    let mut by_id: HashMap<&str, &Node> = HashMap::with_capacity(elements.nodes.len());
+    for n in &elements.nodes {
+        let lbl = primary_label(n);
+        if !lbl.is_empty() {
+            *node_labels.entry(lbl.to_string()).or_insert(0) += 1;
+        }
+        by_id.insert(&n.id, n);
+    }
+
+    let mut edge_labels: HashMap<String, HashMap<(String, String), usize>> = HashMap::new();
+    let mut has_implements = false;
+    let mut measure_props: BTreeSet<String> = BTreeSet::new();
+    for e in &elements.edges {
+        let s_lbl = by_id
+            .get(e.source.as_str())
+            .map(|n| primary_label(n))
+            .unwrap_or("");
+        let t_lbl = by_id
+            .get(e.target.as_str())
+            .map(|n| primary_label(n))
+            .unwrap_or("");
+        *edge_labels
+            .entry(e.label.clone())
+            .or_default()
+            .entry((s_lbl.to_string(), t_lbl.to_string()))
+            .or_insert(0) += 1;
+        if e.label == "implements" {
+            has_implements = true;
+        }
+        if e.label == "measures" {
+            for (k, v) in &e.properties {
+                if v.is_number() {
+                    measure_props.insert(k.clone());
+                }
+            }
+        }
+    }
+
+    let mut node_labels: Vec<_> = node_labels.into_iter().collect();
+    node_labels.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
+
+    let mut edge_label_stats: Vec<EdgeTypeStat> = edge_labels
+        .into_iter()
+        .map(|(label, pairs)| {
+            let count: usize = pairs.values().sum();
+            let mut pairs: Vec<(String, String, usize)> =
+                pairs.into_iter().map(|((s, t), c)| (s, t, c)).collect();
+            pairs.sort_by(|a, b| b.2.cmp(&a.2));
+            EdgeTypeStat {
+                label,
+                count,
+                source_target_pairs: pairs,
+            }
+        })
+        .collect();
+    edge_label_stats.sort_by(|a, b| b.count.cmp(&a.count).then(a.label.cmp(&b.label)));
+
+    let metric_nodes: Vec<MetricRef> = elements
+        .nodes
+        .iter()
+        .filter(|n| primary_label(n) == "Metric")
+        .map(|n| {
+            let name = n
+                .properties
+                .get("simpleName")
+                .and_then(|v| v.as_str())
+                .unwrap_or(&n.id)
+                .to_string();
+            MetricRef {
+                id: n.id.clone(),
+                name,
+            }
+        })
+        .collect();
+
+    GraphSummary {
+        node_count: elements.nodes.len(),
+        edge_count: elements.edges.len(),
+        node_labels,
+        edge_labels: edge_label_stats,
+        metric_nodes,
+        measure_properties: measure_props.into_iter().collect(),
+        has_implements,
+    }
+}
+
+// -----------------------------------------------------------------------------
+// Hierarchy
+// -----------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HierarchyLink {
+    pub source: String, // source node label
+    pub edge: String,   // edge label
+    pub target: String, // target node label
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HierarchySchema {
+    pub links: Vec<HierarchyLink>,
+}
+
+#[derive(Debug, Default, Serialize)]
+pub struct HierarchyIndex {
+    pub roots: Vec<String>,
+    pub parent_of: HashMap<String, String>,
+    pub children_of: HashMap<String, Vec<String>>,
+    pub depth_of: HashMap<String, usize>,
+    pub level_of: HashMap<String, usize>, // index into chain (0 = topmost source)
+}
+
+fn build_hierarchy_index(elements: &Elements, schema: &HierarchySchema) -> HierarchyIndex {
+    let mut by_id: HashMap<&str, &Node> = HashMap::with_capacity(elements.nodes.len());
+    for n in &elements.nodes {
+        by_id.insert(&n.id, n);
+    }
+
+    let mut parent_of: HashMap<String, String> = HashMap::new();
+    let mut children_of: HashMap<String, Vec<String>> = HashMap::new();
+    let mut level_of: HashMap<String, usize> = HashMap::new();
+
+    // For each link in schema (in order), walk edges of that label and treat them as
+    // parent→child edges where source has source-label and target has target-label.
+    // Earlier links win — once a node has a parent, later links don't overwrite.
+    for (idx, link) in schema.links.iter().enumerate() {
+        for e in &elements.edges {
+            if e.label != link.edge {
+                continue;
+            }
+            let s = by_id.get(e.source.as_str()).copied();
+            let t = by_id.get(e.target.as_str()).copied();
+            let (Some(s), Some(t)) = (s, t) else { continue };
+            if primary_label(s) != link.source || primary_label(t) != link.target {
+                continue;
+            }
+            if e.source == e.target {
+                continue;
+            }
+            if parent_of.contains_key(&e.target) {
+                continue;
+            }
+            parent_of.insert(e.target.clone(), e.source.clone());
+            children_of
+                .entry(e.source.clone())
+                .or_default()
+                .push(e.target.clone());
+            // child level = idx + 1, source level = idx (only set if not already)
+            level_of.entry(e.target.clone()).or_insert(idx + 1);
+            level_of.entry(e.source.clone()).or_insert(idx);
+        }
+    }
+
+    // Roots: nodes whose primary label appears as source somewhere in the chain
+    // and which themselves have no parent.
+    let source_labels: HashSet<&str> =
+        schema.links.iter().map(|l| l.source.as_str()).collect();
+
+    let mut roots: Vec<String> = Vec::new();
+    for n in &elements.nodes {
+        let lbl = primary_label(n);
+        if !source_labels.contains(lbl) {
+            continue;
+        }
+        if parent_of.contains_key(&n.id) {
+            continue;
+        }
+        // Only include if it has at least one child (otherwise just a stray node)
+        // — actually, include it anyway to allow inspecting it.
+        roots.push(n.id.clone());
+    }
+    roots.sort();
+
+    // depth_of via BFS from roots
+    let mut depth_of: HashMap<String, usize> = HashMap::new();
+    let mut queue: std::collections::VecDeque<(String, usize)> = std::collections::VecDeque::new();
+    for r in &roots {
+        depth_of.insert(r.clone(), 0);
+        queue.push_back((r.clone(), 0));
+    }
+    while let Some((id, d)) = queue.pop_front() {
+        if let Some(children) = children_of.get(&id) {
+            for c in children {
+                if !depth_of.contains_key(c) {
+                    depth_of.insert(c.clone(), d + 1);
+                    queue.push_back((c.clone(), d + 1));
+                }
+            }
+        }
+    }
+
+    HierarchyIndex {
+        roots,
+        parent_of,
+        children_of,
+        depth_of,
+        level_of,
+    }
+}
+
+// -----------------------------------------------------------------------------
+// View assembly (focused-node view)
+// -----------------------------------------------------------------------------
+
+#[derive(Debug, Serialize)]
+pub struct FocusedView {
+    pub focused_id: String,
+    pub nodes: Vec<NodeView>,
+    pub edges: Vec<EdgeView>,
+    pub breadcrumb: Vec<NodeView>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct NodeView {
+    pub id: String,
+    pub label: String,        // primary label (type)
+    pub name: String,         // simpleName or id
+    pub parent: Option<String>, // compound parent in the cytoscape view
+    pub role: NodeRole,
+    pub properties: BTreeMap<String, Value>,
+}
+
+#[derive(Debug, Serialize, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum NodeRole {
+    Focused,        // the focused node, rendered as compound
+    FocusedParent,  // the focused node's hierarchy parent (compound)
+    Child,          // a hierarchy child of focused (rendered inside focused)
+    Neighbour,      // dependency-neighbour of a child
+    NeighbourParent, // hierarchy parent of a neighbour (compound)
+}
+
+#[derive(Debug, Serialize)]
+pub struct EdgeView {
+    pub id: String,
+    pub source: String,
+    pub target: String,
+    pub label: String,
+}
+
+const DEPENDENCY_LABELS: &[&str] = &[
+    "requires",
+    "specializes",
+    "returns",
+    "instantiates",
+    "typed",
+    "uses",
+    "invokes",
+];
+
+fn is_dep_label(s: &str) -> bool {
+    DEPENDENCY_LABELS.iter().any(|d| *d == s)
+}
+
+fn focused_view(
+    elements: &Elements,
+    schema: &HierarchySchema,
+    enabled_deps: &HashSet<String>,
+    focused_id: &str,
+) -> Result<FocusedView, String> {
+    let by_id: HashMap<&str, &Node> = elements.nodes.iter().map(|n| (n.id.as_str(), n)).collect();
+    let focused = *by_id
+        .get(focused_id)
+        .ok_or_else(|| format!("unknown node id: {focused_id}"))?;
+
+    let h = build_hierarchy_index(elements, schema);
+
+    let focused_parent = h.parent_of.get(focused_id).cloned();
+    let children: Vec<String> = h
+        .children_of
+        .get(focused_id)
+        .cloned()
+        .unwrap_or_default();
+
+    // Dependency-neighbours of children
+    let child_set: HashSet<&str> = children.iter().map(|s| s.as_str()).collect();
+    let mut neighbours: BTreeSet<String> = BTreeSet::new();
+    let mut dep_edges: Vec<EdgeView> = Vec::new();
+    for e in &elements.edges {
+        if !is_dep_label(&e.label) || !enabled_deps.contains(&e.label) {
+            continue;
+        }
+        let s_in = child_set.contains(e.source.as_str());
+        let t_in = child_set.contains(e.target.as_str());
+        if !s_in && !t_in {
+            continue;
+        }
+        if !s_in {
+            neighbours.insert(e.source.clone());
+        }
+        if !t_in {
+            neighbours.insert(e.target.clone());
+        }
+        dep_edges.push(EdgeView {
+            id: e.id.clone(),
+            source: e.source.clone(),
+            target: e.target.clone(),
+            label: e.label.clone(),
+        });
+    }
+    // Don't put the focused node's children as their own neighbours
+    for c in &children {
+        neighbours.remove(c);
+    }
+    // Don't double-list the focused node itself
+    neighbours.remove(focused_id);
+
+    // Hierarchy parents of neighbours
+    let mut neighbour_parents: BTreeSet<String> = BTreeSet::new();
+    for n_id in &neighbours {
+        if let Some(p) = h.parent_of.get(n_id) {
+            // exclude the focused node and its parent (those are already in view in different roles)
+            if p != focused_id && Some(p.clone()) != focused_parent {
+                neighbour_parents.insert(p.clone());
+            }
+        }
+    }
+
+    // Assemble node views
+    let mut nodes_out: Vec<NodeView> = Vec::new();
+    let to_view = |n: &Node, role: NodeRole, parent: Option<String>| NodeView {
+        id: n.id.clone(),
+        label: primary_label(n).to_string(),
+        name: n
+            .properties
+            .get("simpleName")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| n.id.clone()),
+        parent,
+        role,
+        properties: n.properties.clone(),
+    };
+
+    // focused_parent compound (if any)
+    if let Some(fp_id) = &focused_parent {
+        if let Some(n) = by_id.get(fp_id.as_str()).copied() {
+            nodes_out.push(to_view(n, NodeRole::FocusedParent, None));
+        }
+    }
+    // focused
+    nodes_out.push(to_view(
+        focused,
+        NodeRole::Focused,
+        focused_parent.clone(),
+    ));
+    // children inside focused
+    for c_id in &children {
+        if let Some(n) = by_id.get(c_id.as_str()).copied() {
+            nodes_out.push(to_view(n, NodeRole::Child, Some(focused_id.to_string())));
+        }
+    }
+    // neighbour parents (compounds)
+    for np_id in &neighbour_parents {
+        if let Some(n) = by_id.get(np_id.as_str()).copied() {
+            nodes_out.push(to_view(n, NodeRole::NeighbourParent, None));
+        }
+    }
+    // neighbours
+    for n_id in &neighbours {
+        if let Some(n) = by_id.get(n_id.as_str()).copied() {
+            let parent_id = h.parent_of.get(n_id).cloned();
+            // only set cytoscape parent if that parent is in our view
+            let parent_in_view = parent_id
+                .as_deref()
+                .filter(|p| neighbour_parents.contains(*p));
+            nodes_out.push(to_view(
+                n,
+                NodeRole::Neighbour,
+                parent_in_view.map(|s| s.to_string()),
+            ));
+        }
+    }
+
+    // Breadcrumb: walk parents up from focused
+    let mut bc: Vec<NodeView> = Vec::new();
+    let mut cur = Some(focused_id.to_string());
+    while let Some(c) = cur {
+        if let Some(n) = by_id.get(c.as_str()).copied() {
+            bc.push(to_view(n, NodeRole::Focused, None));
+        }
+        cur = h.parent_of.get(&c).cloned();
+    }
+    bc.reverse();
+
+    Ok(FocusedView {
+        focused_id: focused_id.to_string(),
+        nodes: nodes_out,
+        edges: dep_edges,
+        breadcrumb: bc,
+    })
+}
+
+// -----------------------------------------------------------------------------
+// Tauri commands
+// -----------------------------------------------------------------------------
+
+#[tauri::command]
+pub fn parse_graph(
+    state: State<AppState>,
+    json: String,
+) -> Result<GraphSummary, String> {
+    let elements = parse_elements(&json)?;
+    let summary = summarize(&elements);
+    *state
+        .elements
+        .lock()
+        .map_err(|e| format!("state lock: {e}"))? = Some(elements);
+    Ok(summary)
+}
+
+#[tauri::command]
+pub fn build_hierarchy(
+    state: State<AppState>,
+    schema: HierarchySchema,
+) -> Result<HierarchyIndex, String> {
+    let guard = state.elements.lock().map_err(|e| format!("state lock: {e}"))?;
+    let elements = guard.as_ref().ok_or("no graph loaded")?;
+    Ok(build_hierarchy_index(elements, &schema))
+}
+
+#[derive(Debug, Serialize)]
+pub struct NeighborResult {
+    pub nodes: Vec<Node>,
+    pub edges: Vec<Edge>,
+}
+
+#[tauri::command]
+pub fn get_neighbors(
+    state: State<AppState>,
+    node_ids: Vec<String>,
+    edge_filters: Vec<String>,
+) -> Result<NeighborResult, String> {
+    let guard = state.elements.lock().map_err(|e| format!("state lock: {e}"))?;
+    let elements = guard.as_ref().ok_or("no graph loaded")?;
+    let target_set: HashSet<&str> = node_ids.iter().map(|s| s.as_str()).collect();
+    let label_set: HashSet<&str> = edge_filters.iter().map(|s| s.as_str()).collect();
+    let mut nodes_out: HashMap<String, Node> = HashMap::new();
+    let mut edges_out: Vec<Edge> = Vec::new();
+    let by_id: HashMap<&str, &Node> = elements.nodes.iter().map(|n| (n.id.as_str(), n)).collect();
+    for e in &elements.edges {
+        if !label_set.is_empty() && !label_set.contains(e.label.as_str()) {
+            continue;
+        }
+        let touches = target_set.contains(e.source.as_str())
+            || target_set.contains(e.target.as_str());
+        if !touches {
+            continue;
+        }
+        edges_out.push(e.clone());
+        for id in [&e.source, &e.target] {
+            if let Some(n) = by_id.get(id.as_str()).copied() {
+                nodes_out.entry(id.clone()).or_insert_with(|| n.clone());
+            }
+        }
+    }
+    Ok(NeighborResult {
+        nodes: nodes_out.into_values().collect(),
+        edges: edges_out,
+    })
+}
+
+#[tauri::command]
+pub fn get_node(state: State<AppState>, id: String) -> Result<Option<Node>, String> {
+    let guard = state.elements.lock().map_err(|e| format!("state lock: {e}"))?;
+    let elements = guard.as_ref().ok_or("no graph loaded")?;
+    Ok(elements.nodes.iter().find(|n| n.id == id).cloned())
+}
+
+#[tauri::command]
+pub fn get_focused_view(
+    state: State<AppState>,
+    schema: HierarchySchema,
+    enabled_deps: Vec<String>,
+    focused_id: String,
+) -> Result<FocusedView, String> {
+    let guard = state.elements.lock().map_err(|e| format!("state lock: {e}"))?;
+    let elements = guard.as_ref().ok_or("no graph loaded")?;
+    let enabled: HashSet<String> = enabled_deps.into_iter().collect();
+    focused_view(elements, &schema, &enabled, &focused_id)
+}
