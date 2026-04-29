@@ -1,0 +1,78 @@
+{
+  "elements": {
+    "nodes": [
+      { "data": { "id": "root", "labels": ["Folder"], "properties": { "simpleName": "src" } } },
+      { "data": { "id": "f_util", "labels": ["Folder"], "properties": { "simpleName": "util" } } },
+      { "data": { "id": "f_model", "labels": ["Folder"], "properties": { "simpleName": "model" } } },
+
+      { "data": { "id": "file_geom", "labels": ["File"], "properties": { "simpleName": "Geometry.ts" } } },
+      { "data": { "id": "file_user", "labels": ["File"], "properties": { "simpleName": "User.ts" } } },
+      { "data": { "id": "file_log",  "labels": ["File"], "properties": { "simpleName": "Logger.ts" } } },
+
+      { "data": { "id": "T_Point",  "labels": ["Type"], "properties": { "simpleName": "Point" } } },
+      { "data": { "id": "T_Vector", "labels": ["Type"], "properties": { "simpleName": "Vector" } } },
+      { "data": { "id": "T_User",   "labels": ["Type"], "properties": { "simpleName": "User" } } },
+      { "data": { "id": "T_Logger", "labels": ["Type"], "properties": { "simpleName": "Logger" } } },
+
+      { "data": { "id": "op_dist", "labels": ["Operation"], "properties": { "simpleName": "distanceTo" } } },
+      { "data": { "id": "op_add",  "labels": ["Operation"], "properties": { "simpleName": "add" } } },
+      { "data": { "id": "op_log",  "labels": ["Operation"], "properties": { "simpleName": "log" } } },
+      { "data": { "id": "op_login","labels": ["Operation"], "properties": { "simpleName": "login" } } },
+
+      { "data": { "id": "v_x", "labels": ["Variable"], "properties": { "simpleName": "x" } } },
+      { "data": { "id": "v_y", "labels": ["Variable"], "properties": { "simpleName": "y" } } },
+      { "data": { "id": "v_name", "labels": ["Variable"], "properties": { "simpleName": "name" } } },
+
+      { "data": { "id": "C_geom",   "labels": ["Category"], "properties": { "simpleName": "Geometry" } } },
+      { "data": { "id": "C_user",   "labels": ["Category"], "properties": { "simpleName": "Identity" } } },
+      { "data": { "id": "C_log",    "labels": ["Category"], "properties": { "simpleName": "Diagnostics" } } },
+
+      { "data": { "id": "M_lcom",   "labels": ["Metric"], "properties": { "simpleName": "LCOM" } } },
+      { "data": { "id": "M_size",   "labels": ["Metric"], "properties": { "simpleName": "Size (LOC)" } } }
+    ],
+    "edges": [
+      { "data": { "id": "c1", "source": "root", "target": "f_util",  "label": "contains" } },
+      { "data": { "id": "c2", "source": "root", "target": "f_model", "label": "contains" } },
+      { "data": { "id": "c3", "source": "f_util",  "target": "file_geom", "label": "contains" } },
+      { "data": { "id": "c4", "source": "f_util",  "target": "file_log",  "label": "contains" } },
+      { "data": { "id": "c5", "source": "f_model", "target": "file_user", "label": "contains" } },
+
+      { "data": { "id": "d1", "source": "file_geom", "target": "T_Point",  "label": "declares" } },
+      { "data": { "id": "d2", "source": "file_geom", "target": "T_Vector", "label": "declares" } },
+      { "data": { "id": "d3", "source": "file_user", "target": "T_User",   "label": "declares" } },
+      { "data": { "id": "d4", "source": "file_log",  "target": "T_Logger", "label": "declares" } },
+
+      { "data": { "id": "e1", "source": "T_Point",  "target": "op_dist", "label": "encapsulates" } },
+      { "data": { "id": "e2", "source": "T_Vector", "target": "op_add",  "label": "encapsulates" } },
+      { "data": { "id": "e3", "source": "T_Logger", "target": "op_log",  "label": "encapsulates" } },
+      { "data": { "id": "e4", "source": "T_User",   "target": "op_login","label": "encapsulates" } },
+      { "data": { "id": "e5", "source": "T_Point",  "target": "v_x",     "label": "encapsulates" } },
+      { "data": { "id": "e6", "source": "T_Point",  "target": "v_y",     "label": "encapsulates" } },
+      { "data": { "id": "e7", "source": "T_User",   "target": "v_name",  "label": "encapsulates" } },
+
+      { "data": { "id": "u1", "source": "op_dist", "target": "op_add", "label": "invokes" } },
+      { "data": { "id": "u2", "source": "op_login","target": "op_log", "label": "invokes" } },
+      { "data": { "id": "u3", "source": "op_dist", "target": "v_x",    "label": "uses" } },
+      { "data": { "id": "u4", "source": "op_dist", "target": "v_y",    "label": "uses" } },
+      { "data": { "id": "u5", "source": "T_Vector","target": "T_Point","label": "specializes" } },
+      { "data": { "id": "u6", "source": "op_dist", "target": "T_Vector","label": "returns" } },
+      { "data": { "id": "u7", "source": "op_login","target": "T_Logger","label": "instantiates" } },
+      { "data": { "id": "u8", "source": "v_name", "target": "T_User",  "label": "typed" } },
+      { "data": { "id": "u9", "source": "file_user", "target": "file_log", "label": "requires" } },
+
+      { "data": { "id": "i1", "source": "T_Point",  "target": "C_geom", "label": "implements" } },
+      { "data": { "id": "i2", "source": "T_Vector", "target": "C_geom", "label": "implements" } },
+      { "data": { "id": "i3", "source": "T_User",   "target": "C_user", "label": "implements" } },
+      { "data": { "id": "i4", "source": "T_Logger", "target": "C_log",  "label": "implements" } },
+
+      { "data": { "id": "m1", "source": "T_Point",  "target": "M_lcom", "label": "measures", "properties": { "value": 0.32 } } },
+      { "data": { "id": "m2", "source": "T_Vector", "target": "M_lcom", "label": "measures", "properties": { "value": 0.55 } } },
+      { "data": { "id": "m3", "source": "T_User",   "target": "M_lcom", "label": "measures", "properties": { "value": 0.18 } } },
+      { "data": { "id": "m4", "source": "T_Logger", "target": "M_lcom", "label": "measures", "properties": { "value": 0.71 } } },
+      { "data": { "id": "m5", "source": "T_Point",  "target": "M_size", "label": "measures", "properties": { "value": 42 } } },
+      { "data": { "id": "m6", "source": "T_Vector", "target": "M_size", "label": "measures", "properties": { "value": 88 } } },
+      { "data": { "id": "m7", "source": "T_User",   "target": "M_size", "label": "measures", "properties": { "value": 150 } } },
+      { "data": { "id": "m8", "source": "T_Logger", "target": "M_size", "label": "measures", "properties": { "value": 24 } } }
+    ]
+  }
+}
