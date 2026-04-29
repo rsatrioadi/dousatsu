@@ -4,7 +4,7 @@ import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { readTextFile } from "@tauri-apps/plugin-fs";
 
 import { Sidebar } from "./sidebar.js";
-import { createCy, paintFocusedView } from "./cy.js";
+import { createCy, paintFocusedView, runLayout } from "./cy.js";
 
 const state = {
   schema: null,
@@ -30,6 +30,15 @@ state.cy = createCy(document.getElementById("cy"));
 state.cy.on("tap", "node", (evt) => {
   const id = evt.target.id();
   if (id !== state.focusedId) focusNode(id);
+});
+
+// Re-run layout on every node selection change. Cytoscape fires `select` and
+// `unselect` per node — coalesce bursts (auto-unselect-then-select on tap)
+// into a single deferred relayout.
+let _relayoutTimer = null;
+state.cy.on("select unselect", "node", () => {
+  clearTimeout(_relayoutTimer);
+  _relayoutTimer = setTimeout(() => runLayout(state.cy), 30);
 });
 
 // ---------- File loading ----------

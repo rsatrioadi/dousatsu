@@ -180,6 +180,27 @@ function gradientWhiteToBlue(t) {
   return `rgb(${r},${g},${b})`;
 }
 
+// Run an fcose layout over the current cytoscape contents. Used both right
+// after paintFocusedView (fresh, randomised layout) and on selection changes
+// (incremental, smoothly animated tweak).
+export function runLayout(cy, opts = {}) {
+  if (cy.elements().length === 0) return;
+  const layout = cy.layout({
+    name: "fcose",
+    quality: "default",
+    animate: opts.animate ?? "end",
+    animationDuration: opts.animationDuration ?? 300,
+    randomize: opts.randomize ?? false,
+    nodeSeparation: 80,
+    idealEdgeLength: 70,
+    nodeRepulsion: 6000,
+    packComponents: true,
+    fit: opts.fit ?? true,
+    padding: 30,
+  });
+  layout.run();
+}
+
 // Paint a focused view's worth of elements into cytoscape and run layout.
 export function paintFocusedView(cy, view, coloring) {
   cy.elements().remove();
@@ -211,17 +232,6 @@ export function paintFocusedView(cy, view, coloring) {
   cy.add(nodes);
   cy.add(edges);
 
-  const layout = cy.layout({
-    name: "fcose",
-    quality: "default",
-    animate: false,
-    randomize: true,
-    nodeSeparation: 80,
-    idealEdgeLength: 70,
-    nodeRepulsion: 6000,
-    packComponents: true,
-    fit: true,
-    padding: 30,
-  });
-  layout.run();
+  // Initial paint: full randomised layout, no animation (instantly settled).
+  runLayout(cy, { animate: false, randomize: true });
 }
