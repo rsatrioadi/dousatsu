@@ -396,20 +396,6 @@ pub struct EdgeView {
     pub label: String,
 }
 
-const DEPENDENCY_LABELS: &[&str] = &[
-    "requires",
-    "specializes",
-    "returns",
-    "instantiates",
-    "typed",
-    "uses",
-    "invokes",
-];
-
-fn is_dep_label(s: &str) -> bool {
-    DEPENDENCY_LABELS.iter().any(|d| *d == s)
-}
-
 fn focused_view(
     elements: &Elements,
     schema: &HierarchySchema,
@@ -429,38 +415,95 @@ fn focused_view(
         .get(focused_id)
         .cloned()
         .unwrap_or_default();
-
-    // Dependency-neighbours of children
     let child_set: HashSet<&str> = children.iter().map(|s| s.as_str()).collect();
+
+    // For each node in `focused`'s subtree, the unique child of `focused`
+    // that contains it (or the node itself if it IS a child of focused).
+    // Built via BFS down from each child.
+    let mut subtree_to_child: HashMap<String, String> = HashMap::new();
+    for c_id in &children {
+        let mut stack = vec![c_id.clone()];
+        while let Some(x) = stack.pop() {
+            if subtree_to_child.contains_key(&x) {
+                continue;
+            }
+            subtree_to_child.insert(x.clone(), c_id.clone());
+            if let Some(grand) = h.children_of.get(&x) {
+                for g in grand {
+                    stack.push(g.clone());
+                }
+            }
+        }
+    }
+
+    // Collect dependency edges, "lifted" up the ancestry: an edge between two
+    // descendants of different children is rendered at the children level. An
+    // edge between a child's descendant and an external node is rendered with
+    // the child-side endpoint lifted to the child. Intra-child edges are
+    // suppressed (they belong to a deeper level).
     let mut neighbours: BTreeSet<String> = BTreeSet::new();
     let mut dep_edges: Vec<EdgeView> = Vec::new();
+    let mut emitted: HashSet<(String, String, String)> = HashSet::new();
+
     for e in &elements.edges {
-        if !is_dep_label(&e.label) || !enabled_deps.contains(&e.label) {
+        if !enabled_deps.contains(&e.label) {
             continue;
         }
-        let s_in = child_set.contains(e.source.as_str());
-        let t_in = child_set.contains(e.target.as_str());
-        if !s_in && !t_in {
+        let ps = subtree_to_child.get(&e.source).cloned();
+        let pt = subtree_to_child.get(&e.target).cloned();
+
+        // Edge entirely outside focused's subtree.
+        if ps.is_none() && pt.is_none() {
             continue;
         }
-        if !s_in {
-            neighbours.insert(e.source.clone());
+        // Edge internal to a single child's subtree.
+        if ps.is_some() && ps == pt {
+            continue;
         }
-        if !t_in {
-            neighbours.insert(e.target.clone());
+
+        let vs = ps.clone().unwrap_or_else(|| e.source.clone());
+        let vt = pt.clone().unwrap_or_else(|| e.target.clone());
+
+        if vs == vt {
+            continue;
         }
+        // Don't draw edges to/from the focused container itself.
+        if vs.as_str() == focused_id || vt.as_str() == focused_id {
+            continue;
+        }
+
+        let key = (vs.clone(), vt.clone(), e.label.clone());
+        if !emitted.insert(key) {
+            continue;
+        }
+
+        let lifted = vs.as_str() != e.source.as_str() || vt.as_str() != e.target.as_str();
+        let edge_id = if lifted {
+            format!("lift:{}:{}->{}", e.label, vs, vt)
+        } else {
+            e.id.clone()
+        };
+
         dep_edges.push(EdgeView {
-            id: e.id.clone(),
-            source: e.source.clone(),
-            target: e.target.clone(),
+            id: edge_id,
+            source: vs.clone(),
+            target: vt.clone(),
             label: e.label.clone(),
         });
+
+        // External endpoints become dependency-neighbours.
+        if ps.is_none() {
+            neighbours.insert(e.source.clone());
+        }
+        if pt.is_none() {
+            neighbours.insert(e.target.clone());
+        }
     }
-    // Don't put the focused node's children as their own neighbours
+
+    // Defensive: don't double-list things already in view.
     for c in &children {
         neighbours.remove(c);
     }
-    // Don't double-list the focused node itself, or its parent (already in view).
     neighbours.remove(focused_id);
     if let Some(fp) = &focused_parent {
         neighbours.remove(fp);
