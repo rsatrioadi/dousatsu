@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Dousatsu</title>
+    <link rel="stylesheet" href="./styles/app.css" />
+  </head>
+  <body>
+    <div id="app">
+      <div class="toolbar">
+        <button id="open-file-btn" class="btn">Open File…</button>
+        <span id="file-name" class="file-name"></span>
+        <button id="back-btn" class="btn icon-btn" title="Back" disabled>&larr;</button>
+        <button id="reset-view-btn" class="btn" disabled>Reset View</button>
+      </div>
+      <div class="body">
+        <aside id="sidebar" class="sidebar">
+          <section class="panel" id="panel-schema">
+            <header class="panel-header">
+              <span class="disclosure" data-target="panel-schema-body">▾</span>
+              <span class="panel-title">A · Hierarchy schema</span>
+            </header>
+            <div class="panel-body" id="panel-schema-body">
+              <div class="hint" id="schema-hint">Open a graph file to begin.</div>
+              <ol id="hierarchy-list" class="hierarchy-list"></ol>
+              <div class="row">
+                <button id="add-link-btn" class="btn small" disabled>+ Add link</button>
+              </div>
+            </div>
+          </section>
+
+          <section class="panel" id="panel-deps">
+            <header class="panel-header">
+              <span class="disclosure" data-target="panel-deps-body">▾</span>
+              <span class="panel-title">B · Dependency edges</span>
+            </header>
+            <div class="panel-body" id="panel-deps-body">
+              <div id="deps-list" class="deps-list"></div>
+            </div>
+          </section>
+
+          <section class="panel" id="panel-color">
+            <header class="panel-header">
+              <span class="disclosure" data-target="panel-color-body">▾</span>
+              <span class="panel-title">C · Coloring</span>
+            </header>
+            <div class="panel-body" id="panel-color-body">
+              <label class="radio-row">
+                <input type="radio" name="color-mode" value="none" checked />
+                <span>None (by node-type)</span>
+              </label>
+              <label class="radio-row">
+                <input type="radio" name="color-mode" value="categorical" />
+                <span>Categorical (implements)</span>
+              </label>
+              <label class="radio-row">
+                <input type="radio" name="color-mode" value="gradient" />
+                <span>Gradient (measures)</span>
+              </label>
+              <div class="gradient-config" id="gradient-config" hidden>
+                <label class="field">
+                  <span>Metric</span>
+                  <select id="metric-select"></select>
+                </label>
+                <label class="field">
+                  <span>Property</span>
+                  <select id="metric-prop-select"></select>
+                </label>
+              </div>
+              <div id="legend" class="legend"></div>
+            </div>
+          </section>
+
+          <div class="build-row">
+            <button id="build-btn" class="btn primary" disabled>Build</button>
+          </div>
+        </aside>
+
+        <main class="canvas-wrap">
+          <nav id="breadcrumb" class="breadcrumb"></nav>
+          <div id="cy" class="cy"></div>
+        </main>
+      </div>
+    </div>
+    <script type="module" src="./js/main.js"></script>
+  </body>
+</html>
