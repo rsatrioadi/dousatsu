@@ -23,6 +23,9 @@ importers:
       cytoscape-cose-bilkent:
         specifier: ^4.1.0
         version: 4.1.0(cytoscape@3.33.2)
+      cytoscape-elk:
+        specifier: ^2.3.0
+        version: 2.3.0(cytoscape@3.33.2)
       cytoscape-fcose:
         specifier: ^2.2.0
         version: 2.2.0(cytoscape@3.33.2)
@@ -414,6 +417,11 @@ packages:
     peerDependencies:
       cytoscape: ^3.2.0
 
+  cytoscape-elk@2.3.0:
+    resolution: {integrity: sha512-1h2ZmPOy5HD2+mrfF3P2ICxfnDyPCWg/xLVs7fIjTOzdQu51ydrMtm6Sb7KnhFwLBzhGIVYI2Gbns0njggBarQ==}
+    peerDependencies:
+      cytoscape: ^3.2.0
+
   cytoscape-fcose@2.2.0:
     resolution: {integrity: sha512-ki1/VuRIHFCzxWNrsshHYPs6L7TvLu3DL+TyIGEsRcvVERmxokbf5Gdk7mFxZnTdiGtnA4cfSmjZJMviqSuZrQ==}
     peerDependencies:
@@ -427,6 +435,9 @@ packages:
   cytoscape@3.33.2:
     resolution: {integrity: sha512-sj4HXd3DokGhzZAdjDejGvTPLqlt84vNFN8m7bGsOzDY5DyVcxIb2ejIXat2Iy7HxWhdT/N1oKyheJ5YdpsGuw==}
     engines: {node: '>=0.10'}
+
+  elkjs@0.9.3:
+    resolution: {integrity: sha512-f/ZeWvW/BCXbhGEf1Ujp29EASo/lk1FDnETgNKwJrsVvGZhUWCZyg3xLJjAsxfOmt8KjswHmI5EwCQcPMpOYhQ==}
 
   esbuild@0.21.5:
     resolution: {integrity: sha512-mg3OPMV4hXywwpoDxu3Qda5xCKQi+vCTZq8S9J/EpkhB2HzKXq4SNFZE3+NK93JYxc8VMSep+lOUSC/RVKaBqw==}
@@ -717,6 +728,11 @@ snapshots:
       cose-base: 1.0.3
       cytoscape: 3.33.2
 
+  cytoscape-elk@2.3.0(cytoscape@3.33.2):
+    dependencies:
+      cytoscape: 3.33.2
+      elkjs: 0.9.3
+
   cytoscape-fcose@2.2.0(cytoscape@3.33.2):
     dependencies:
       cose-base: 2.2.0
@@ -728,6 +744,8 @@ snapshots:
       klayjs: 0.4.1
 
   cytoscape@3.33.2: {}
+
+  elkjs@0.9.3: {}
 
   esbuild@0.21.5:
     optionalDependencies:

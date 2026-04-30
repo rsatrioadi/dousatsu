@@ -15,6 +15,7 @@
     "@tauri-apps/plugin-fs": "^2.0.2",
     "cytoscape": "^3.30.2",
     "cytoscape-cose-bilkent": "^4.1.0",
+    "cytoscape-elk": "^2.3.0",
     "cytoscape-fcose": "^2.2.0",
     "cytoscape-klay": "^3.1.4"
   },

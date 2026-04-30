@@ -25,11 +25,23 @@ document.getElementById("reset-view-btn").addEventListener("click", () => {
     focusNode(state.hierarchy.roots[0], { resetHistory: true });
   }
 });
+document.getElementById("run-layout-btn").addEventListener("click", () => {
+  if (state.cy) {
+    runLayout(state.cy, { algorithm: currentAlgo });
+  }
+});
 
 state.cy = createCy(document.getElementById("cy"));
 state.cy.on("tap", "node", (evt) => {
   const id = evt.target.id();
   if (id !== state.focusedId) focusNode(id);
+});
+
+let currentAlgo = "layered";
+
+document.getElementById("layout-algo").addEventListener("change", (e) => {
+  currentAlgo = e.target.value;
+  runLayout(state.cy, { algorithm: currentAlgo });
 });
 
 // Re-run layout on every node selection change. Cytoscape fires `select` and
@@ -38,7 +50,7 @@ state.cy.on("tap", "node", (evt) => {
 let _relayoutTimer = null;
 state.cy.on("select unselect", "node", () => {
   clearTimeout(_relayoutTimer);
-  _relayoutTimer = setTimeout(() => runLayout(state.cy), 30);
+  _relayoutTimer = setTimeout(() => runLayout(state.cy, { algorithm: currentAlgo }), 30);
 });
 
 // ---------- File loading ----------
@@ -164,7 +176,7 @@ async function focusNode(id, opts = {}) {
   if (opts.resetHistory) state.history = [];
 
   state.focusedId = id;
-  paintFocusedView(state.cy, view, state.coloring);
+  paintFocusedView(state.cy, view, state.coloring, { algorithm: currentAlgo });
   renderBreadcrumb(view.breadcrumb);
   document.getElementById("back-btn").disabled = state.history.length === 0;
 }

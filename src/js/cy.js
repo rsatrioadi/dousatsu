@@ -1,8 +1,8 @@
 // Cytoscape rendering: setup, styling, layout, focused-view paint.
 import cytoscape from "cytoscape";
-import klay from "cytoscape-klay";
+import elk from "cytoscape-elk";
 
-cytoscape.use(klay);
+cytoscape.use(elk);
 
 // Hand-picked colours for the well-known SABO dependency labels. Any other
 // label gets a deterministic hash-derived hue via depColor().
@@ -177,37 +177,24 @@ function gradientWhiteToBlue(t) {
   return `rgb(${r},${g},${b})`;
 }
 
-// Run a klay layout over the current cytoscape contents.
+// Run an elk layout over the current cytoscape contents.
 export function runLayout(cy, opts = {}) {
   if (cy.elements().length === 0) return;
   const layout = cy.layout({
-    name: "klay",
+    name: "elk",
     animate: opts.animate ?? "end",
     animationDuration: opts.animationDuration ?? 300,
     fit: opts.fit ?? true,
     padding: 30,
-    klay: {
-      direction: "DOWN",
-      edgeRouting: "ORTHOGONAL",
-      nodePlacement: "BRANDES_KOEPF",
-      nodeLayering: "NETWORK_SIMPLEX",
-      thoroughness: 7,
-      spacing: 30,
-      borderSpacing: 20,
-      inLayerSpacingFactor: 1.0,
-      layoutHierarchy: true,
-      mergeEdges: false,
-      crossingMinimization: "LAYER_SWEEP",
-      cycleBreaking: "GREEDY",
-      feedbackEdges: false,
-      fixedAlignment: "NONE",
+    elk: {
+      algorithm: opts.algorithm || "layered",
     },
   });
   layout.run();
 }
 
 // Paint a focused view's worth of elements into cytoscape and run layout.
-export function paintFocusedView(cy, view, coloring) {
+export function paintFocusedView(cy, view, coloring, layoutOpts = {}) {
   cy.elements().remove();
 
   const nodes = view.nodes.map((n) => ({
@@ -238,5 +225,5 @@ export function paintFocusedView(cy, view, coloring) {
   cy.add(edges);
 
   // Initial paint: full randomised layout, no animation (instantly settled).
-  runLayout(cy);
+  runLayout(cy, layoutOpts);
 }
