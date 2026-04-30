@@ -396,6 +396,34 @@ pub struct EdgeView {
     pub label: String,
 }
 
+/// Synthetic id used when the hierarchy yields more than one root. The view
+/// then shows a virtual "forest" compound containing every real root, so the
+/// initial canvas can present all of them at once.
+pub const FOREST_ROOT_ID: &str = "::dousatsu::forest";
+
+fn make_forest_node() -> Node {
+    let mut props = BTreeMap::new();
+    props.insert(
+        "simpleName".to_string(),
+        Value::String("Forest".to_string()),
+    );
+    Node {
+        id: FOREST_ROOT_ID.to_string(),
+        labels: vec!["Forest".to_string()],
+        properties: props,
+    }
+}
+
+/// Look up a node by id, returning a synthesised forest node when asked for
+/// the synthetic forest id. Returns None for unknown real ids.
+fn resolve_node(by_id: &HashMap<&str, &Node>, id: &str) -> Option<Node> {
+    if id == FOREST_ROOT_ID {
+        Some(make_forest_node())
+    } else {
+        by_id.get(id).copied().cloned()
+    }
+}
+
 fn focused_view(
     elements: &Elements,
     schema: &HierarchySchema,
@@ -403,18 +431,36 @@ fn focused_view(
     focused_id: &str,
 ) -> Result<FocusedView, String> {
     let by_id: HashMap<&str, &Node> = elements.nodes.iter().map(|n| (n.id.as_str(), n)).collect();
-    let focused = *by_id
-        .get(focused_id)
-        .ok_or_else(|| format!("unknown node id: {focused_id}"))?;
 
     let h = build_hierarchy_index(elements, schema);
+    let multi_root = h.roots.len() > 1;
+    let is_forest = focused_id == FOREST_ROOT_ID;
 
-    let focused_parent = h.parent_of.get(focused_id).cloned();
-    let children: Vec<String> = h
-        .children_of
-        .get(focused_id)
-        .cloned()
-        .unwrap_or_default();
+    // The focused node — real, or synthesised when looking at the forest.
+    let focused_owned = resolve_node(&by_id, focused_id)
+        .ok_or_else(|| format!("unknown node id: {focused_id}"))?;
+    let focused = &focused_owned;
+
+    // The focused node's hierarchy parent. Real roots get the synthetic forest
+    // as their parent when the hierarchy is a forest (more than one root).
+    let focused_parent = if is_forest {
+        None
+    } else {
+        let real_parent = h.parent_of.get(focused_id).cloned();
+        if real_parent.is_none() && multi_root && h.roots.iter().any(|r| r == focused_id) {
+            Some(FOREST_ROOT_ID.to_string())
+        } else {
+            real_parent
+        }
+    };
+
+    // Direct hierarchy children of the focused node. For the forest, those
+    // are all real roots.
+    let children: Vec<String> = if is_forest {
+        h.roots.clone()
+    } else {
+        h.children_of.get(focused_id).cloned().unwrap_or_default()
+    };
     let child_set: HashSet<&str> = children.iter().map(|s| s.as_str()).collect();
 
     // For each node in `focused`'s subtree, the unique child of `focused`
@@ -643,10 +689,12 @@ fn focused_view(
         properties: n.properties.clone(),
     };
 
-    // focused_parent compound (if any)
+    // focused_parent compound (if any). Resolved via resolve_node so the
+    // synthetic forest can also act as the parent compound for a real root
+    // when the hierarchy has more than one root.
     if let Some(fp_id) = &focused_parent {
-        if let Some(n) = by_id.get(fp_id.as_str()).copied() {
-            nodes_out.push(to_view(n, NodeRole::FocusedParent, None));
+        if let Some(n) = resolve_node(&by_id, fp_id) {
+            nodes_out.push(to_view(&n, NodeRole::FocusedParent, None));
         }
     }
     // focused
@@ -678,7 +726,7 @@ fn focused_view(
         }
         if let Some(n) = by_id.get(c_id.as_str()).copied() {
             nodes_out.push(to_view(n, NodeRole::NeighbourParent, cp.clone()));
-        }
+    }
     }
     // neighbours
     for n_id in &neighbours {
@@ -691,14 +739,25 @@ fn focused_view(
         }
     }
 
-    // Breadcrumb: walk parents up from focused
+    // Breadcrumb: walk parents up from focused. When the hierarchy is a
+    // forest (multi-root), the synthetic forest is appended as the topmost
+    // crumb so the user can always click their way back to the all-roots view.
     let mut bc: Vec<NodeView> = Vec::new();
     let mut cur = Some(focused_id.to_string());
     while let Some(c) = cur {
-        if let Some(n) = by_id.get(c.as_str()).copied() {
-            bc.push(to_view(n, NodeRole::Focused, None));
+        if let Some(n) = resolve_node(&by_id, c.as_str()) {
+            bc.push(to_view(&n, NodeRole::Focused, None));
         }
-        cur = h.parent_of.get(&c).cloned();
+        cur = if c == FOREST_ROOT_ID {
+            None
+        } else {
+            let real_parent = h.parent_of.get(&c).cloned();
+            if real_parent.is_none() && multi_root && h.roots.iter().any(|r| r == &c) {
+                Some(FOREST_ROOT_ID.to_string())
+            } else {
+                real_parent
+            }
+        };
     }
     bc.reverse();
 

@@ -26,6 +26,9 @@ importers:
       cytoscape-fcose:
         specifier: ^2.2.0
         version: 2.2.0(cytoscape@3.33.2)
+      cytoscape-klay:
+        specifier: ^3.1.4
+        version: 3.1.4(cytoscape@3.33.2)
     devDependencies:
       '@tauri-apps/cli':
         specifier: ^2.1.0
@@ -416,6 +419,11 @@ packages:
     peerDependencies:
       cytoscape: ^3.2.0
 
+  cytoscape-klay@3.1.4:
+    resolution: {integrity: sha512-VwPj0VR25GPfy6qXVQRi/MYlZM/zkdvRhHlgqbM//lSvstgM6fhp3ik/uM8Wr8nlhskfqz/M1fIDmR6UckbS2A==}
+    peerDependencies:
+      cytoscape: ^3.2.0
+
   cytoscape@3.33.2:
     resolution: {integrity: sha512-sj4HXd3DokGhzZAdjDejGvTPLqlt84vNFN8m7bGsOzDY5DyVcxIb2ejIXat2Iy7HxWhdT/N1oKyheJ5YdpsGuw==}
     engines: {node: '>=0.10'}
@@ -429,6 +437,9 @@ packages:
     resolution: {integrity: sha512-5xoDfX+fL7faATnagmWPpbFtwh/R77WmMMqqHGS65C3vvB0YHrgF+B1YmZ3441tMj5n63k0212XNoJwzlhffQw==}
     engines: {node: ^8.16.0 || ^10.6.0 || >=11.0.0}
     os: [darwin]
+
+  klayjs@0.4.1:
+    resolution: {integrity: sha512-WUNxuO7O79TEkxCj6OIaK5TJBkaWaR/IKNTakgV9PwDn+mrr63MLHed34AcE2yTaDntgO6l0zGFIzhcoTeroTA==}
 
   layout-base@1.0.2:
     resolution: {integrity: sha512-8h2oVEZNktL4BH2JCOI90iD1yXwL6iNW7KcCKT2QZgQJR2vbqDsldCTPRU9NifTCqHZci57XvQQ15YTu+sTYPg==}
@@ -711,6 +722,11 @@ snapshots:
       cose-base: 2.2.0
       cytoscape: 3.33.2
 
+  cytoscape-klay@3.1.4(cytoscape@3.33.2):
+    dependencies:
+      cytoscape: 3.33.2
+      klayjs: 0.4.1
+
   cytoscape@3.33.2: {}
 
   esbuild@0.21.5:
@@ -741,6 +757,8 @@ snapshots:
 
   fsevents@2.3.3:
     optional: true
+
+  klayjs@0.4.1: {}
 
   layout-base@1.0.2: {}
 

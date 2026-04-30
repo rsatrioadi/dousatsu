@@ -1,10 +1,8 @@
 // Cytoscape rendering: setup, styling, layout, focused-view paint.
 import cytoscape from "cytoscape";
-import fcose from "cytoscape-fcose";
-import coseBilkent from "cytoscape-cose-bilkent";
+import klay from "cytoscape-klay";
 
-cytoscape.use(fcose);
-cytoscape.use(coseBilkent);
+cytoscape.use(klay);
 
 // Hand-picked colours for the well-known SABO dependency labels. Any other
 // label gets a deterministic hash-derived hue via depColor().
@@ -60,7 +58,6 @@ const COMPOUND_ROLES = new Set(["focused", "focused_parent", "neighbour_parent"]
 export function createCy(container) {
   const cy = cytoscape({
     container,
-    wheelSensitivity: 0.2,
     boxSelectionEnabled: false,
     selectionType: "single",
     style: baseStyle(),
@@ -180,23 +177,31 @@ function gradientWhiteToBlue(t) {
   return `rgb(${r},${g},${b})`;
 }
 
-// Run an fcose layout over the current cytoscape contents. Used both right
-// after paintFocusedView (fresh, randomised layout) and on selection changes
-// (incremental, smoothly animated tweak).
+// Run a klay layout over the current cytoscape contents.
 export function runLayout(cy, opts = {}) {
   if (cy.elements().length === 0) return;
   const layout = cy.layout({
-    name: "fcose",
-    quality: "default",
+    name: "klay",
     animate: opts.animate ?? "end",
     animationDuration: opts.animationDuration ?? 300,
-    randomize: opts.randomize ?? false,
-    nodeSeparation: 80,
-    idealEdgeLength: 70,
-    nodeRepulsion: 6000,
-    packComponents: true,
     fit: opts.fit ?? true,
     padding: 30,
+    klay: {
+      direction: "DOWN",
+      edgeRouting: "ORTHOGONAL",
+      nodePlacement: "BRANDES_KOEPF",
+      nodeLayering: "NETWORK_SIMPLEX",
+      thoroughness: 7,
+      spacing: 30,
+      borderSpacing: 20,
+      inLayerSpacingFactor: 1.0,
+      layoutHierarchy: true,
+      mergeEdges: false,
+      crossingMinimization: "LAYER_SWEEP",
+      cycleBreaking: "GREEDY",
+      feedbackEdges: false,
+      fixedAlignment: "NONE",
+    },
   });
   layout.run();
 }
@@ -206,16 +211,16 @@ export function paintFocusedView(cy, view, coloring) {
   cy.elements().remove();
 
   const nodes = view.nodes.map((n) => ({
-    group: "nodes",
-    data: {
-      id: n.id,
-      name: n.name,
-      _label: n.label,
-      _role: n.role,
-      _fill: fillFor(n, coloring),
-      _shape: COMPOUND_ROLES.has(n.role) ? "round-rectangle" : shapeFor(n),
+      group: "nodes",
+      data: {
+        id: n.id,
+        name: n.name,
+        _label: n.label,
+        _role: n.role,
+        _fill: fillFor(n, coloring),
+        _shape: COMPOUND_ROLES.has(n.role) ? "round-rectangle" : shapeFor(n),
       parent: n.parent || undefined,
-    },
+      },
   }));
 
   const edges = view.edges.map((e) => ({
@@ -233,5 +238,5 @@ export function paintFocusedView(cy, view, coloring) {
   cy.add(edges);
 
   // Initial paint: full randomised layout, no animation (instantly settled).
-  runLayout(cy, { animate: false, randomize: true });
+  runLayout(cy);
 }
