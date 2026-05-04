@@ -425,23 +425,23 @@ fn resolve_node(by_id: &HashMap<&str, &Node>, id: &str) -> Option<Node> {
 }
 
 /// Walk up the hierarchy parent chain from `node_id` until we find a node
-/// whose primary label is in `child_labels`. Returns the matching ancestor id,
+/// whose primary label equals `target_label`. Returns the matching ancestor id,
 /// or the original `node_id` if no such ancestor exists.
 fn lift_to_level(
     node_id: &str,
-    child_labels: &HashSet<String>,
+    target_label: &str,
     h: &HierarchyIndex,
     by_id: &HashMap<&str, &Node>,
 ) -> String {
     if let Some(n) = by_id.get(node_id) {
-        if child_labels.contains(primary_label(n)) {
+        if primary_label(n) == target_label {
             return node_id.to_string();
         }
     }
     let mut cur = h.parent_of.get(node_id).cloned();
     while let Some(anc) = cur {
         if let Some(n) = by_id.get(anc.as_str()) {
-            if child_labels.contains(primary_label(n)) {
+            if primary_label(n) == target_label {
                 return anc;
             }
         }
@@ -488,14 +488,6 @@ fn focused_view(
         h.children_of.get(focused_id).cloned().unwrap_or_default()
     };
     let child_set: HashSet<&str> = children.iter().map(|s| s.as_str()).collect();
-
-    // Primary labels of children — used to lift external neighbours to the
-    // same conceptual level as what's being rendered.
-    let child_labels: HashSet<String> = children
-        .iter()
-        .filter_map(|c_id| by_id.get(c_id.as_str()))
-        .map(|n| primary_label(n).to_string())
-        .collect();
 
     // For each node in `focused`'s subtree, the unique child of `focused`
     // that contains it (or the node itself if it IS a child of focused).
@@ -547,7 +539,7 @@ fn focused_view(
         let s_in_subtree = ps.is_some();
         let t_in_subtree = pt.is_some();
 
-        let (vs, vt, lifted) = if s_is_child && t_is_child {
+        let (vs, vt, _lifted) = if s_is_child && t_is_child {
             // Both direct children — original sibling edge.
             (e.source.clone(), e.target.clone(), false)
         } else if s_is_child && !t_in_subtree {
@@ -601,21 +593,30 @@ fn focused_view(
             continue;
         };
 
-        // Lift external endpoints to the nearest ancestor that matches a
-        // child type, so neighbours appear at the same level as the children.
-        let vs = if !s_in_subtree {
-            lift_to_level(&vs, &child_labels, &h, &by_id)
+        // Lift external endpoints to match the level of the internal endpoint.
+        // The internal endpoint's label is used as the target so that, e.g.,
+        // a Scope→externalType edge lifts the Type to its parent Scope, while
+        // a Type→externalOperation edge lifts the Operation to its parent Type.
+        let vs_label = if s_in_subtree {
+            by_id.get(vs.as_str()).map(|n| primary_label(n).to_string())
         } else {
-            vs
+            None
         };
-        let vt = if !t_in_subtree {
-            lift_to_level(&vt, &child_labels, &h, &by_id)
+        let vt_label = if t_in_subtree {
+            by_id.get(vt.as_str()).map(|n| primary_label(n).to_string())
         } else {
-            vt
+            None
+        };
+        let vs = match (!s_in_subtree, vt_label.as_deref()) {
+            (true, Some(label)) => lift_to_level(&vs, label, &h, &by_id),
+            _ => vs,
+        };
+        let vt = match (!t_in_subtree, vs_label.as_deref()) {
+            (true, Some(label)) => lift_to_level(&vt, label, &h, &by_id),
+            _ => vt,
         };
 
-        // Lifting two different external nodes to the same ancestor produces
-        // a self-loop — drop it.
+        // Lifting two external nodes to the same ancestor produces a self-loop.
         if vs == vt {
             continue;
         }
@@ -629,7 +630,8 @@ fn focused_view(
             continue;
         }
 
-        let edge_id = if lifted {
+        // Use a synthetic id whenever either endpoint was lifted.
+        let edge_id = if vs.as_str() != e.source.as_str() || vt.as_str() != e.target.as_str() {
             format!("lift:{}:{}->{}", e.label, vs, vt)
         } else {
             e.id.clone()
