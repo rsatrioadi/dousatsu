@@ -6,6 +6,8 @@ import { readTextFile } from "@tauri-apps/plugin-fs";
 import { Sidebar } from "./sidebar.js";
 import { createCy, paintFocusedView, runLayout } from "./cy.js";
 
+const FOREST_ROOT_ID = "::dousatsu::forest";
+
 const state = {
   schema: null,
   enabledDeps: [],
@@ -22,35 +24,25 @@ document.getElementById("open-file-btn").addEventListener("click", openFile);
 document.getElementById("back-btn").addEventListener("click", goBack);
 document.getElementById("reset-view-btn").addEventListener("click", () => {
   if (state.hierarchy && state.hierarchy.roots.length) {
-    focusNode(state.hierarchy.roots[0], { resetHistory: true });
+    const rootId = state.hierarchy.roots.length > 1 ? FOREST_ROOT_ID : state.hierarchy.roots[0];
+    focusNode(rootId, { resetHistory: true });
   }
 });
 document.getElementById("run-layout-btn").addEventListener("click", () => {
   if (state.cy) {
-    runLayout(state.cy, { algorithm: currentAlgo });
+    runLayout(state.cy, { algorithm: document.getElementById("layout-algo").value });
   }
 });
 
 state.cy = createCy(document.getElementById("cy"));
+window.cy = state.cy;
 state.cy.on("tap", "node", (evt) => {
   const id = evt.target.id();
   if (id !== state.focusedId) focusNode(id);
 });
 
-let currentAlgo = "layered";
-
 document.getElementById("layout-algo").addEventListener("change", (e) => {
-  currentAlgo = e.target.value;
-  runLayout(state.cy, { algorithm: currentAlgo });
-});
-
-// Re-run layout on every node selection change. Cytoscape fires `select` and
-// `unselect` per node — coalesce bursts (auto-unselect-then-select on tap)
-// into a single deferred relayout.
-let _relayoutTimer = null;
-state.cy.on("select unselect", "node", () => {
-  clearTimeout(_relayoutTimer);
-  _relayoutTimer = setTimeout(() => runLayout(state.cy, { algorithm: currentAlgo }), 30);
+  runLayout(state.cy, { algorithm: e.target.value });
 });
 
 // ---------- File loading ----------
@@ -99,7 +91,8 @@ async function onBuild(cfg) {
     return;
   }
   state.history = [];
-  await focusNode(state.hierarchy.roots[0], { resetHistory: true });
+  const rootId = state.hierarchy.roots.length > 1 ? FOREST_ROOT_ID : state.hierarchy.roots[0];
+  await focusNode(rootId, { resetHistory: true });
 }
 
 async function computeColoring(modeCfg) {
@@ -176,7 +169,7 @@ async function focusNode(id, opts = {}) {
   if (opts.resetHistory) state.history = [];
 
   state.focusedId = id;
-  paintFocusedView(state.cy, view, state.coloring, { algorithm: currentAlgo });
+  paintFocusedView(state.cy, view, state.coloring, { algorithm: document.getElementById("layout-algo").value });
   renderBreadcrumb(view.breadcrumb);
   document.getElementById("back-btn").disabled = state.history.length === 0;
 }

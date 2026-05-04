@@ -424,6 +424,32 @@ fn resolve_node(by_id: &HashMap<&str, &Node>, id: &str) -> Option<Node> {
     }
 }
 
+/// Walk up the hierarchy parent chain from `node_id` until we find a node
+/// whose primary label is in `child_labels`. Returns the matching ancestor id,
+/// or the original `node_id` if no such ancestor exists.
+fn lift_to_level(
+    node_id: &str,
+    child_labels: &HashSet<String>,
+    h: &HierarchyIndex,
+    by_id: &HashMap<&str, &Node>,
+) -> String {
+    if let Some(n) = by_id.get(node_id) {
+        if child_labels.contains(primary_label(n)) {
+            return node_id.to_string();
+        }
+    }
+    let mut cur = h.parent_of.get(node_id).cloned();
+    while let Some(anc) = cur {
+        if let Some(n) = by_id.get(anc.as_str()) {
+            if child_labels.contains(primary_label(n)) {
+                return anc;
+            }
+        }
+        cur = h.parent_of.get(&anc).cloned();
+    }
+    node_id.to_string()
+}
+
 fn focused_view(
     elements: &Elements,
     schema: &HierarchySchema,
@@ -463,6 +489,14 @@ fn focused_view(
     };
     let child_set: HashSet<&str> = children.iter().map(|s| s.as_str()).collect();
 
+    // Primary labels of children — used to lift external neighbours to the
+    // same conceptual level as what's being rendered.
+    let child_labels: HashSet<String> = children
+        .iter()
+        .filter_map(|c_id| by_id.get(c_id.as_str()))
+        .map(|n| primary_label(n).to_string())
+        .collect();
+
     // For each node in `focused`'s subtree, the unique child of `focused`
     // that contains it (or the node itself if it IS a child of focused).
     // Built via BFS down from each child.
@@ -482,14 +516,16 @@ fn focused_view(
         }
     }
 
-    // Collect dependency edges. Originals (where one or both endpoints are
-    // direct children of focused) follow the spec verbatim — the off-child
-    // endpoint becomes a dependency-neighbour. Lifted edges are added on top:
-    // an edge whose endpoints are deep descendants is also rendered between
-    // their children-of-focused projections, so e.g. operation invocations
-    // surface as type-type edges when focused on a file. Lifting NEVER turns
-    // a deep-descendant→external edge into a child→external edge — that
-    // would invent neighbours that don't exist at the original level.
+    // Collect dependency edges. Edges involving focused's subtree are normalised:
+    //   child ↔ child:               kept as-is.
+    //   child ↔ external:            kept as-is; external becomes a neighbour.
+    //   deep descendant ↔ external:  source/target lifted to child-of-focused
+    //                                 projection; external becomes a neighbour.
+    //   both deep descendants:       both lifted to child-of-focused projections;
+    //                                 intra-child edges are dropped.
+    // After lifting, external endpoints are further promoted to their nearest
+    // hierarchy ancestor whose node type matches that of the children of focused,
+    // so neighbours always appear at the same conceptual level as the children.
     let mut neighbours: BTreeSet<String> = BTreeSet::new();
     let mut dep_edges: Vec<EdgeView> = Vec::new();
     let mut emitted: HashSet<(String, String, String)> = HashSet::new();
@@ -552,11 +588,37 @@ fn focused_view(
                 continue; // intra-child
             }
             (ps_id, pt_id, true)
+        } else if s_in_subtree && !t_in_subtree {
+            // Deep descendant → external. Lift source to child-of-focused.
+            let ps_id = ps.clone().expect("s_in_subtree");
+            (ps_id, e.target.clone(), true)
+        } else if !s_in_subtree && t_in_subtree {
+            // External → deep descendant. Lift target to child-of-focused.
+            let pt_id = pt.clone().expect("t_in_subtree");
+            (e.source.clone(), pt_id, true)
         } else {
-            // Either both external, or one deep + one external. Skip — we
-            // do NOT lift to invent a child↔external edge.
+            // Both external — no connection to focused subtree. Skip.
             continue;
         };
+
+        // Lift external endpoints to the nearest ancestor that matches a
+        // child type, so neighbours appear at the same level as the children.
+        let vs = if !s_in_subtree {
+            lift_to_level(&vs, &child_labels, &h, &by_id)
+        } else {
+            vs
+        };
+        let vt = if !t_in_subtree {
+            lift_to_level(&vt, &child_labels, &h, &by_id)
+        } else {
+            vt
+        };
+
+        // Lifting two different external nodes to the same ancestor produces
+        // a self-loop — drop it.
+        if vs == vt {
+            continue;
+        }
 
         if vs.as_str() == focused_id || vt.as_str() == focused_id {
             continue;
@@ -575,18 +637,18 @@ fn focused_view(
 
         dep_edges.push(EdgeView {
             id: edge_id,
-            source: vs,
-            target: vt,
+            source: vs.clone(),
+            target: vt.clone(),
             label: e.label.clone(),
         });
 
-        // Neighbours: the off-child endpoint of an *original* (un-lifted)
-        // edge that touches a child of focused.
+        // Neighbours: any external endpoint, using the (possibly lifted) vs/vt
+        // so the rendered neighbour is the correct ancestor node.
         if !s_in_subtree {
-            neighbours.insert(e.source.clone());
+            neighbours.insert(vs);
         }
         if !t_in_subtree {
-            neighbours.insert(e.target.clone());
+            neighbours.insert(vt);
         }
     }
 

@@ -180,17 +180,23 @@ function gradientWhiteToBlue(t) {
 // Run an elk layout over the current cytoscape contents.
 export function runLayout(cy, opts = {}) {
   if (cy.elements().length === 0) return;
-  const layout = cy.layout({
-    name: "elk",
-    animate: opts.animate ?? "end",
-    animationDuration: opts.animationDuration ?? 300,
-    fit: opts.fit ?? true,
-    padding: 30,
+  console.log("Running layout with", opts);
+  const layout = cy.elements().makeLayout({
+    name: 'elk',
+    fit: true,
+    ranker: 'longest-path',
+    animate: true,
+    animationDuration: 300,
+    animationEasing: 'ease-in-out-cubic',
     elk: {
-      algorithm: opts.algorithm || "layered",
+      zoomToFit: true,
+      algorithm: opts.algorithm || 'box',
+      separateConnectedComponents: false,
     },
   });
+  console.log(layout);
   layout.run();
+  cy.zoomToFit();
 }
 
 // Paint a focused view's worth of elements into cytoscape and run layout.
@@ -224,6 +230,5 @@ export function paintFocusedView(cy, view, coloring, layoutOpts = {}) {
   cy.add(nodes);
   cy.add(edges);
 
-  // Initial paint: full randomised layout, no animation (instantly settled).
   runLayout(cy, layoutOpts);
 }
