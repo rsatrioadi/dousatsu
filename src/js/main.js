@@ -45,6 +45,24 @@ document.getElementById("layout-algo").addEventListener("change", (e) => {
   runLayout(state.cy, { algorithm: e.target.value });
 });
 
+window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
+  if (state.cy) {
+    import("./cy.js").then(({ refreshStyle }) => refreshStyle(state.cy));
+    // Also re-render legend and possibly re-run coloring if categorical
+    if (state.coloring && state.coloring.kind === "categorical") {
+       // We'd need to re-generate the palette. For now let's just re-paint.
+    }
+    // If we have a focused view, re-paint it to update node colors
+    if (state.focusedId) {
+      // Re-fetch or just re-paint with existing view?
+      // Re-painting is easier if we had the view object.
+      // For now, let's just trigger a re-focus to be sure.
+      focusNode(state.focusedId);
+    }
+    renderLegend();
+  }
+});
+
 // ---------- File loading ----------
 async function openFile() {
   let path;
@@ -142,9 +160,12 @@ function makeCategoricalPalette(ids) {
   // Distinct hues, soft saturation, fixed lightness — categorical-friendly.
   const out = {};
   const n = Math.max(1, ids.length);
+  const dark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+  const l = dark ? 40 : 78;
+  const s = dark ? 45 : 55;
   for (let i = 0; i < ids.length; i++) {
     const h = Math.round((360 * i) / n);
-    out[ids[i]] = `hsl(${h}, 55%, 78%)`;
+    out[ids[i]] = `hsl(${h}, ${s}%, ${l}%)`;
   }
   return out;
 }
