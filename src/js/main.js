@@ -169,7 +169,11 @@ async function focusNode(id, opts = {}) {
   if (opts.resetHistory) state.history = [];
 
   state.focusedId = id;
-  paintFocusedView(state.cy, view, state.coloring, { algorithm: document.getElementById("layout-algo").value });
+  try {
+    paintFocusedView(state.cy, view, state.coloring, { algorithm: document.getElementById("layout-algo").value });
+  } catch (e) {
+    console.error("paintFocusedView failed", e);
+  }
   renderBreadcrumb(view.breadcrumb);
   document.getElementById("back-btn").disabled = state.history.length === 0;
 }
