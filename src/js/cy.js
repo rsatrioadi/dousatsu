@@ -175,9 +175,17 @@ function baseStyle() {
   ];
 }
 
+// Cytoscape parses background-gradient-stop-colors as a space-separated list,
+// so any individual colour string must not contain spaces (e.g. `hsl(0, 50%, 78%)`
+// would split into 3 tokens). Strip internal whitespace defensively.
+function safeColor(c) {
+  return typeof c === "string" ? c.replace(/\s+/g, "") : c;
+}
+
 /// Solid fill, expressed as a 1-stop gradient so the cytoscape style can stay uniform.
 function solidStops(color) {
-  return { colors: `${color} ${color}`, positions: "0% 100%" };
+  const c = safeColor(color);
+  return { colors: `${c} ${c}`, positions: "0% 100%" };
 }
 
 /// Hard-stop multi-segment gradient: each stop repeats at the segment boundary
@@ -191,7 +199,8 @@ function sharpStops(segments) {
     const start = acc * 100;
     acc += seg.fraction;
     const end = acc * 100;
-    colors.push(seg.color, seg.color);
+    const c = safeColor(seg.color);
+    colors.push(c, c);
     positions.push(`${start.toFixed(3)}%`, `${end.toFixed(3)}%`);
   }
   return { colors: colors.join(" "), positions: positions.join(" ") };
