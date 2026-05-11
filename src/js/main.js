@@ -49,8 +49,15 @@ window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () 
   if (state.cy) {
     import("./cy.js").then(({ refreshStyle }) => refreshStyle(state.cy));
     // Also re-render legend and possibly re-run coloring if categorical
-    if (state.coloring && state.coloring.kind === "categorical") {
-       // We'd need to re-generate the palette. For now let's just re-paint.
+    if (state.coloring && state.coloring.kind === "dimension") {
+      // Regenerate per-dimension palettes for the new theme.
+      const palettes = {};
+      for (const dim of state.coloring.dimensions) {
+        palettes[dim.id] = makeCategoricalPalette(
+          dim.categories.map((c) => c.id)
+        );
+      }
+      state.coloring.palettes = palettes;
     }
     // If we have a focused view, re-paint it to update node colors
     if (state.focusedId) {
@@ -118,20 +125,27 @@ async function computeColoring(modeCfg) {
   if (modeCfg.mode === "none") return;
 
   if (modeCfg.mode === "dimension") {
-    if (!modeCfg.dimensionId) {
-      alert("Dimension: pick a dimension first.");
+    const levelDims = modeCfg.levelDimensions || {};
+    if (Object.keys(levelDims).length === 0) {
+      alert("Dimension: pick at least one dimension for a node level.");
       return;
     }
     try {
-      const r = await invoke("compute_coloring_by_dimension", {
-        dimensionId: modeCfg.dimensionId,
+      const r = await invoke("compute_coloring_by_levels", {
+        levelDimensions: levelDims,
       });
-      const palette = makeCategoricalPalette(r.categories.map((c) => c.id));
+      const palettes = {};
+      for (const dim of r.dimensions) {
+        palettes[dim.id] = makeCategoricalPalette(
+          dim.categories.map((c) => c.id)
+        );
+      }
       state.coloring = {
-        kind: "categorical",
-        byNode: r.map,
-        palette,
-        categories: r.categories,
+        kind: "dimension",
+        stopsByNode: r.stops_by_node,
+        dimensionByNode: r.dimension_by_node,
+        dimensions: r.dimensions,
+        palettes,
       };
     } catch (e) {
       console.error("dimension color failed", e);
@@ -239,18 +253,25 @@ function renderLegend() {
   root.innerHTML = "";
   if (!state.coloring) return;
 
-  if (state.coloring.kind === "categorical") {
-    for (const cat of state.coloring.categories) {
-      const row = document.createElement("div");
-      row.className = "legend-row";
-      const sw = document.createElement("span");
-      sw.className = "legend-swatch";
-      sw.style.background = state.coloring.palette[cat.id] || "#ccc";
-      const name = document.createElement("span");
-      name.textContent = cat.name;
-      row.appendChild(sw);
-      row.appendChild(name);
-      root.appendChild(row);
+  if (state.coloring.kind === "dimension") {
+    for (const dim of state.coloring.dimensions) {
+      const title = document.createElement("div");
+      title.className = "legend-title";
+      title.textContent = dim.name;
+      root.appendChild(title);
+      const palette = state.coloring.palettes[dim.id] || {};
+      for (const cat of dim.categories) {
+        const row = document.createElement("div");
+        row.className = "legend-row";
+        const sw = document.createElement("span");
+        sw.className = "legend-swatch";
+        sw.style.background = palette[cat.id] || "#ccc";
+        const name = document.createElement("span");
+        name.textContent = cat.name;
+        row.appendChild(sw);
+        row.appendChild(name);
+        root.appendChild(row);
+      }
     }
     return;
   }

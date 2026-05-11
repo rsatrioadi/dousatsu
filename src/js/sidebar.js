@@ -10,7 +10,7 @@ export class Sidebar {
     // Labels the user has explicitly unchecked. Persists across re-renders so
     // toggling a label off doesn't get re-enabled when the dep list refreshes.
     this.depsExplicitlyExcluded = new Set();
-    this.coloring = { mode: "none", metricId: null, property: null, dimensionId: null };
+    this.coloring = { mode: "none", metricId: null, property: null, levelDimensions: {} };
 
     this._wireDisclosures();
     this._wireColorRadios();
@@ -23,9 +23,6 @@ export class Sidebar {
     });
     document.getElementById("metric-prop-select").addEventListener("change", (e) => {
       this.coloring.property = e.target.value || null;
-    });
-    document.getElementById("dimension-select").addEventListener("change", (e) => {
-      this.coloring.dimensionId = e.target.value || null;
     });
   }
 
@@ -294,19 +291,64 @@ export class Sidebar {
     }
     this._refreshMetricProps();
 
-    const ds = document.getElementById("dimension-select");
-    ds.innerHTML = "";
-    const dblank = document.createElement("option");
-    dblank.value = "";
-    dblank.textContent = "— select dimension —";
-    ds.appendChild(dblank);
-    for (const d of this.summary.dimensions || []) {
-      const opt = document.createElement("option");
-      opt.value = d.id;
-      opt.textContent = `${d.name} (${d.buckets.length})`;
-      ds.appendChild(opt);
+    this._renderDimensionLevels();
+  }
+
+  _renderDimensionLevels() {
+    const ALLOWED = ["Scope", "Folder", "File", "Type", "Operation", "Variable"];
+    const presentLabels = new Set(
+      (this.summary.node_labels || []).map(([l]) => l)
+    );
+    const dimensions = this.summary.dimensions || [];
+
+    const host = document.getElementById("dimension-levels");
+    const hint = document.getElementById("dimension-hint");
+    host.innerHTML = "";
+    this.coloring.levelDimensions = {};
+
+    if (dimensions.length === 0) {
+      hint.hidden = false;
+      return;
     }
-    this.coloring.dimensionId = null;
+    hint.hidden = true;
+
+    for (const label of ALLOWED) {
+      if (!presentLabels.has(label)) continue;
+      const applicable = dimensions.filter((d) =>
+        (d.applies_to || []).includes(label)
+      );
+      if (applicable.length === 0) continue;
+
+      const row = document.createElement("label");
+      row.className = "field";
+      const tag = document.createElement("span");
+      tag.textContent = label;
+      const sel = document.createElement("select");
+      const blankOpt = document.createElement("option");
+      blankOpt.value = "";
+      blankOpt.textContent = "—";
+      sel.appendChild(blankOpt);
+      for (const d of applicable) {
+        const opt = document.createElement("option");
+        opt.value = d.id;
+        opt.textContent = `${d.name} (${d.buckets.length})`;
+        sel.appendChild(opt);
+      }
+      sel.addEventListener("change", (e) => {
+        const v = e.target.value;
+        if (v) this.coloring.levelDimensions[label] = v;
+        else delete this.coloring.levelDimensions[label];
+      });
+      row.appendChild(tag);
+      row.appendChild(sel);
+      host.appendChild(row);
+    }
+
+    if (host.children.length === 0) {
+      hint.textContent =
+        "No :Dimension applies to any node label in this graph.";
+      hint.hidden = false;
+    }
   }
 
   _refreshMetricProps() {
