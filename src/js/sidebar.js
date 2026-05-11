@@ -10,7 +10,7 @@ export class Sidebar {
     // Labels the user has explicitly unchecked. Persists across re-renders so
     // toggling a label off doesn't get re-enabled when the dep list refreshes.
     this.depsExplicitlyExcluded = new Set();
-    this.coloring = { mode: "none", metricId: null, property: null };
+    this.coloring = { mode: "none", metricId: null, property: null, dimensionId: null };
 
     this._wireDisclosures();
     this._wireColorRadios();
@@ -23,6 +23,9 @@ export class Sidebar {
     });
     document.getElementById("metric-prop-select").addEventListener("change", (e) => {
       this.coloring.property = e.target.value || null;
+    });
+    document.getElementById("dimension-select").addEventListener("change", (e) => {
+      this.coloring.dimensionId = e.target.value || null;
     });
   }
 
@@ -39,6 +42,7 @@ export class Sidebar {
       r.addEventListener("change", () => {
         this.coloring.mode = r.value;
         document.getElementById("gradient-config").hidden = r.value !== "gradient";
+        document.getElementById("dimension-config").hidden = r.value !== "dimension";
       });
     });
   }
@@ -289,6 +293,20 @@ export class Sidebar {
       ms.appendChild(opt);
     }
     this._refreshMetricProps();
+
+    const ds = document.getElementById("dimension-select");
+    ds.innerHTML = "";
+    const dblank = document.createElement("option");
+    dblank.value = "";
+    dblank.textContent = "— select dimension —";
+    ds.appendChild(dblank);
+    for (const d of this.summary.dimensions || []) {
+      const opt = document.createElement("option");
+      opt.value = d.id;
+      opt.textContent = `${d.name} (${d.buckets.length})`;
+      ds.appendChild(opt);
+    }
+    this.coloring.dimensionId = null;
   }
 
   _refreshMetricProps() {

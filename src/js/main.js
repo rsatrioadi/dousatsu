@@ -117,9 +117,15 @@ async function computeColoring(modeCfg) {
   state.coloring = null;
   if (modeCfg.mode === "none") return;
 
-  if (modeCfg.mode === "categorical") {
+  if (modeCfg.mode === "dimension") {
+    if (!modeCfg.dimensionId) {
+      alert("Dimension: pick a dimension first.");
+      return;
+    }
     try {
-      const r = await invoke("compute_coloring_categorical");
+      const r = await invoke("compute_coloring_by_dimension", {
+        dimensionId: modeCfg.dimensionId,
+      });
       const palette = makeCategoricalPalette(r.categories.map((c) => c.id));
       state.coloring = {
         kind: "categorical",
@@ -128,7 +134,7 @@ async function computeColoring(modeCfg) {
         categories: r.categories,
       };
     } catch (e) {
-      console.error("categorical color failed", e);
+      console.error("dimension color failed", e);
     }
     return;
   }
