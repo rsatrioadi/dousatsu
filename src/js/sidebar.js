@@ -10,36 +10,17 @@ export class Sidebar {
     // Labels the user has explicitly unchecked. Persists across re-renders so
     // toggling a label off doesn't get re-enabled when the dep list refreshes.
     this.depsExplicitlyExcluded = new Set();
-    this.coloring = { mode: "none", metricId: null, property: null, levelDimensions: {} };
+    this.coloring = { byLabel: {} };
 
     this._wireDisclosures();
-    this._wireColorRadios();
     this._wireBuildBtn();
     this._wireAddLinkBtn();
-
-    document.getElementById("metric-select").addEventListener("change", (e) => {
-      this.coloring.metricId = e.target.value || null;
-      this._refreshMetricProps();
-    });
-    document.getElementById("metric-prop-select").addEventListener("change", (e) => {
-      this.coloring.property = e.target.value || null;
-    });
   }
 
   _wireDisclosures() {
     document.querySelectorAll(".panel-header").forEach((h) => {
       h.addEventListener("click", () => {
         h.parentElement.classList.toggle("collapsed");
-      });
-    });
-  }
-
-  _wireColorRadios() {
-    document.querySelectorAll('input[name="color-mode"]').forEach((r) => {
-      r.addEventListener("change", () => {
-        this.coloring.mode = r.value;
-        document.getElementById("gradient-config").hidden = r.value !== "gradient";
-        document.getElementById("dimension-config").hidden = r.value !== "dimension";
       });
     });
   }
@@ -277,110 +258,87 @@ export class Sidebar {
   }
 
   _renderColoringConfig() {
-    const ms = document.getElementById("metric-select");
-    ms.innerHTML = "";
-    const blank = document.createElement("option");
-    blank.value = "";
-    blank.textContent = "— select metric —";
-    ms.appendChild(blank);
-    for (const m of this.summary.metric_nodes || []) {
-      const opt = document.createElement("option");
-      opt.value = m.id;
-      opt.textContent = m.name;
-      ms.appendChild(opt);
-    }
-    this._refreshMetricProps();
-
-    this._renderDimensionLevels();
+    this._renderColorLevels();
   }
 
-  _renderDimensionLevels() {
-    // Preferred top-down order; any labels outside this list are appended
-    // alphabetically so unfamiliar schemas still get rendered sensibly.
+  _renderColorLevels() {
     const PREFERRED_ORDER = [
       "Project", "Scope", "Container", "Folder", "Package", "File",
       "Type", "Structure", "Constructor", "Operation", "Variable", "Primitive",
     ];
-    const presentLabels = new Set(
-      (this.summary.node_labels || []).map(([l]) => l)
-    );
-    const dimensions = this.summary.dimensions || [];
 
-    const host = document.getElementById("dimension-levels");
-    const hint = document.getElementById("dimension-hint");
+    const host = document.getElementById("color-levels");
+    const hint = document.getElementById("color-hint");
     host.innerHTML = "";
-    this.coloring.levelDimensions = {};
+    this.coloring.byLabel = {};
 
-    if (dimensions.length === 0) {
+    const dimensions = this.summary.dimensions || [];
+    const measurePairs = this.summary.measure_pairs || {};
+    const presentLabels = new Set((this.summary.node_labels || []).map(([l]) => l));
+
+    // Build per-label option lists.
+    const labelOptions = new Map(); // label -> { dims, metricPairs }
+    for (const d of dimensions) {
+      for (const l of d.applies_to || []) {
+        if (!presentLabels.has(l)) continue;
+        if (!labelOptions.has(l)) labelOptions.set(l, { dims: [], metricPairs: [] });
+        labelOptions.get(l).dims.push(d);
+      }
+    }
+    for (const [label, pairs] of Object.entries(measurePairs)) {
+      if (!presentLabels.has(label)) continue;
+      if (!labelOptions.has(label)) labelOptions.set(label, { dims: [], metricPairs: [] });
+      labelOptions.get(label).metricPairs.push(...pairs);
+    }
+
+    if (labelOptions.size === 0) {
       hint.hidden = false;
       return;
     }
     hint.hidden = true;
 
-    // Union of every label that any dimension applies to.
-    const applicableLabels = new Set();
-    for (const d of dimensions) {
-      for (const l of d.applies_to || []) {
-        if (presentLabels.has(l)) applicableLabels.add(l);
-      }
-    }
     const ordered = [
-      ...PREFERRED_ORDER.filter((l) => applicableLabels.has(l)),
-      ...[...applicableLabels]
-        .filter((l) => !PREFERRED_ORDER.includes(l))
-        .sort(),
+      ...PREFERRED_ORDER.filter((l) => labelOptions.has(l)),
+      ...[...labelOptions.keys()].filter((l) => !PREFERRED_ORDER.includes(l)).sort(),
     ];
 
     for (const label of ordered) {
-      const applicable = dimensions.filter((d) =>
-        (d.applies_to || []).includes(label)
-      );
-      if (applicable.length === 0) continue;
+      const { dims, metricPairs } = labelOptions.get(label);
 
       const row = document.createElement("label");
       row.className = "field";
       const tag = document.createElement("span");
       tag.textContent = label;
       const sel = document.createElement("select");
+
       const blankOpt = document.createElement("option");
       blankOpt.value = "";
       blankOpt.textContent = "—";
       sel.appendChild(blankOpt);
-      for (const d of applicable) {
+
+      for (const d of dims) {
         const opt = document.createElement("option");
-        opt.value = d.id;
-        opt.textContent = `${d.name} (${d.buckets.length})`;
+        opt.value = JSON.stringify({ type: "dimension", id: d.id });
+        opt.textContent = d.name;
         sel.appendChild(opt);
       }
+
+      for (const p of metricPairs) {
+        const opt = document.createElement("option");
+        opt.value = JSON.stringify({ type: "metric", metricId: p.metricId, property: p.property });
+        opt.textContent = `${p.metricName} – ${p.property}`;
+        sel.appendChild(opt);
+      }
+
       sel.addEventListener("change", (e) => {
         const v = e.target.value;
-        if (v) this.coloring.levelDimensions[label] = v;
-        else delete this.coloring.levelDimensions[label];
+        if (v) this.coloring.byLabel[label] = JSON.parse(v);
+        else delete this.coloring.byLabel[label];
       });
+
       row.appendChild(tag);
       row.appendChild(sel);
       host.appendChild(row);
-    }
-
-    if (host.children.length === 0) {
-      hint.textContent =
-        "No :Dimension applies to any node label in this graph.";
-      hint.hidden = false;
-    }
-  }
-
-  _refreshMetricProps() {
-    const ps = document.getElementById("metric-prop-select");
-    ps.innerHTML = "";
-    const blank = document.createElement("option");
-    blank.value = "";
-    blank.textContent = "— select property —";
-    ps.appendChild(blank);
-    for (const p of this.summary?.measure_properties || []) {
-      const opt = document.createElement("option");
-      opt.value = p;
-      opt.textContent = p;
-      ps.appendChild(opt);
     }
   }
 }

@@ -209,11 +209,12 @@ function sharpStops(segments) {
 function stopsFor(node, coloring) {
   const lbl = node.label;
 
-  if (coloring && coloring.kind === "dimension") {
-    const stops = coloring.stopsByNode[node.id];
-    const dimId = coloring.dimensionByNode[node.id];
+  if (coloring && coloring.kind === "mixed") {
+    // Dimension coloring
+    const stops = coloring.stopsByNode?.[node.id];
+    const dimId = coloring.dimensionByNode?.[node.id];
     if (stops && stops.length && dimId) {
-      const palette = coloring.palettes[dimId] || {};
+      const palette = coloring.palettes?.[dimId] || {};
       const segs = stops
         .map((s) => ({
           color: palette[s.category_id] || getThemeColor(lbl),
@@ -223,16 +224,14 @@ function stopsFor(node, coloring) {
       if (segs.length === 1) return solidStops(segs[0].color);
       if (segs.length > 1) return sharpStops(segs);
     }
+    // Gradient coloring
+    const gradientByNode = coloring.gradientByNode || {};
+    if (node.id in gradientByNode) {
+      const t = gradientByNode[node.id];
+      const c = isDark() ? gradientDarkToBlue(t) : gradientWhiteToBlue(t);
+      return solidStops(c);
+    }
     return solidStops(getThemeColor(lbl));
-  }
-
-  if (coloring && coloring.kind === "gradient" && node.id in coloring.byNode) {
-    const t = coloring.byNode[node.id];
-    const c = isDark() ? gradientDarkToBlue(t) : gradientWhiteToBlue(t);
-    return solidStops(c);
-  }
-  if (coloring && coloring.kind === "gradient") {
-    return solidStops(isDark() ? "#333" : "#dcdcdc");
   }
 
   return solidStops(getThemeColor(lbl));

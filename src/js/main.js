@@ -48,24 +48,14 @@ document.getElementById("layout-algo").addEventListener("change", (e) => {
 window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
   if (state.cy) {
     import("./cy.js").then(({ refreshStyle }) => refreshStyle(state.cy));
-    // Also re-render legend and possibly re-run coloring if categorical
-    if (state.coloring && state.coloring.kind === "dimension") {
-      // Regenerate per-dimension palettes for the new theme.
+    if (state.coloring?.dimensions) {
       const palettes = {};
       for (const dim of state.coloring.dimensions) {
-        palettes[dim.id] = makeCategoricalPalette(
-          dim.categories.map((c) => c.id)
-        );
+        palettes[dim.id] = makeCategoricalPalette(dim.categories.map((c) => c.id));
       }
       state.coloring.palettes = palettes;
     }
-    // If we have a focused view, re-paint it to update node colors
-    if (state.focusedId) {
-      // Re-fetch or just re-paint with existing view?
-      // Re-painting is easier if we had the view object.
-      // For now, let's just trigger a re-focus to be sure.
-      focusNode(state.focusedId);
-    }
+    if (state.focusedId) focusNode(state.focusedId);
     renderLegend();
   }
 });
@@ -122,58 +112,45 @@ async function onBuild(cfg) {
 
 async function computeColoring(modeCfg) {
   state.coloring = null;
-  if (modeCfg.mode === "none") return;
+  const byLabel = modeCfg.byLabel || {};
+  if (Object.keys(byLabel).length === 0) return;
 
-  if (modeCfg.mode === "dimension") {
-    const levelDims = modeCfg.levelDimensions || {};
-    if (Object.keys(levelDims).length === 0) {
-      alert("Dimension: pick at least one dimension for a node level.");
-      return;
-    }
+  const levelDimensions = {};
+  const levelMetrics = {};
+  for (const [label, cfg] of Object.entries(byLabel)) {
+    if (cfg.type === "dimension") levelDimensions[label] = cfg.id;
+    else if (cfg.type === "metric") levelMetrics[label] = { metricId: cfg.metricId, property: cfg.property };
+  }
+
+  const coloring = { kind: "mixed" };
+
+  if (Object.keys(levelDimensions).length > 0) {
     try {
-      const r = await invoke("compute_coloring_by_levels", {
-        levelDimensions: levelDims,
-      });
+      const r = await invoke("compute_coloring_by_levels", { levelDimensions });
       const palettes = {};
       for (const dim of r.dimensions) {
-        palettes[dim.id] = makeCategoricalPalette(
-          dim.categories.map((c) => c.id)
-        );
+        palettes[dim.id] = makeCategoricalPalette(dim.categories.map((c) => c.id));
       }
-      state.coloring = {
-        kind: "dimension",
-        stopsByNode: r.stops_by_node,
-        dimensionByNode: r.dimension_by_node,
-        dimensions: r.dimensions,
-        palettes,
-      };
+      coloring.stopsByNode = r.stops_by_node;
+      coloring.dimensionByNode = r.dimension_by_node;
+      coloring.dimensions = r.dimensions;
+      coloring.palettes = palettes;
     } catch (e) {
       console.error("dimension color failed", e);
     }
-    return;
   }
 
-  if (modeCfg.mode === "gradient") {
-    if (!modeCfg.metricId || !modeCfg.property) {
-      alert("Gradient: select a metric and property first.");
-      return;
-    }
+  if (Object.keys(levelMetrics).length > 0) {
     try {
-      const r = await invoke("compute_coloring_gradient", {
-        metricId: modeCfg.metricId,
-        property: modeCfg.property,
-      });
-      state.coloring = {
-        kind: "gradient",
-        byNode: r.map,
-        min: r.min,
-        max: r.max,
-        property: modeCfg.property,
-      };
+      const r = await invoke("compute_coloring_gradient", { levelMetrics });
+      coloring.gradientByNode = r.map;
+      coloring.gradientRanges = r.ranges;
     } catch (e) {
       console.error("gradient color failed", e);
     }
   }
+
+  state.coloring = coloring;
 }
 
 function makeCategoricalPalette(ids) {
@@ -255,30 +232,33 @@ function renderLegend() {
   root.innerHTML = "";
   if (!state.coloring) return;
 
-  if (state.coloring.kind === "dimension") {
-    for (const dim of state.coloring.dimensions) {
-      const title = document.createElement("div");
-      title.className = "legend-title";
-      title.textContent = dim.name;
-      root.appendChild(title);
-      const palette = state.coloring.palettes[dim.id] || {};
-      for (const cat of dim.categories) {
-        const row = document.createElement("div");
-        row.className = "legend-row";
-        const sw = document.createElement("span");
-        sw.className = "legend-swatch";
-        sw.style.background = palette[cat.id] || "#ccc";
-        const name = document.createElement("span");
-        name.textContent = cat.name;
-        row.appendChild(sw);
-        row.appendChild(name);
-        root.appendChild(row);
-      }
+  const coloring = state.coloring;
+
+  for (const dim of coloring.dimensions || []) {
+    const title = document.createElement("div");
+    title.className = "legend-title";
+    title.textContent = dim.name;
+    root.appendChild(title);
+    const palette = coloring.palettes?.[dim.id] || {};
+    for (const cat of dim.categories) {
+      const row = document.createElement("div");
+      row.className = "legend-row";
+      const sw = document.createElement("span");
+      sw.className = "legend-swatch";
+      sw.style.background = palette[cat.id] || "#ccc";
+      const name = document.createElement("span");
+      name.textContent = cat.name;
+      row.appendChild(sw);
+      row.appendChild(name);
+      root.appendChild(row);
     }
-    return;
   }
 
-  if (state.coloring.kind === "gradient") {
+  for (const [label, range] of Object.entries(coloring.gradientRanges || {})) {
+    const title = document.createElement("div");
+    title.className = "legend-title";
+    title.textContent = label;
+    root.appendChild(title);
     const bar = document.createElement("div");
     bar.className = "legend-bar";
     root.appendChild(bar);
@@ -287,9 +267,9 @@ function renderLegend() {
     row.style.justifyContent = "space-between";
     row.style.width = "100%";
     const lo = document.createElement("span");
-    lo.textContent = fmt(state.coloring.min);
+    lo.textContent = fmt(range[0]);
     const hi = document.createElement("span");
-    hi.textContent = fmt(state.coloring.max);
+    hi.textContent = fmt(range[1]);
     row.appendChild(lo);
     row.appendChild(hi);
     root.appendChild(row);

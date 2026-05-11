@@ -1,4 +1,4 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use tauri::State;
@@ -6,11 +6,17 @@ use tauri::State;
 use crate::graph::{Elements, Node};
 use crate::AppState;
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MetricPropPair {
+    pub metric_id: String,
+    pub property: String,
+}
+
 #[derive(Debug, Serialize)]
 pub struct GradientResult {
-    pub map: HashMap<String, f64>, // node_id -> normalized [0,1]
-    pub min: f64,
-    pub max: f64,
+    pub map: HashMap<String, f64>,          // node_id -> normalized [0,1]
+    pub ranges: HashMap<String, [f64; 2]>,  // label -> [min, max]
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -215,54 +221,58 @@ pub fn list_dimensions(state: State<AppState>) -> Result<Vec<DimensionInfo>, Str
 #[tauri::command]
 pub fn compute_coloring_gradient(
     state: State<AppState>,
-    metric_id: String,
-    property: String,
+    level_metrics: HashMap<String, MetricPropPair>,
 ) -> Result<GradientResult, String> {
     let guard = state.elements.lock().map_err(|e| format!("state lock: {e}"))?;
     let elements = guard.as_ref().ok_or("no graph loaded")?;
 
-    let mut raw: Vec<(String, f64)> = Vec::new();
+    let by_id: HashMap<&str, &Node> =
+        elements.nodes.iter().map(|n| (n.id.as_str(), n)).collect();
+
+    // Collect raw values grouped by node label for per-label normalization.
+    let mut by_label: HashMap<String, Vec<(String, f64)>> = HashMap::new();
     for e in &elements.edges {
-        if e.label != "measures" || e.target != metric_id {
+        if e.label != "measures" {
             continue;
         }
-        let v = match e.properties.get(&property) {
+        let Some(src) = by_id.get(e.source.as_str()).copied() else {
+            continue;
+        };
+        let src_label = primary_label(src);
+        let Some(pair) = level_metrics.get(src_label) else {
+            continue;
+        };
+        if e.target != pair.metric_id {
+            continue;
+        }
+        let v = match e.properties.get(&pair.property) {
             Some(Value::Number(n)) => n.as_f64(),
             Some(Value::String(s)) => s.parse::<f64>().ok(),
             _ => None,
         };
         if let Some(v) = v {
             if v.is_finite() {
-                raw.push((e.source.clone(), v));
+                by_label
+                    .entry(src_label.to_string())
+                    .or_default()
+                    .push((e.source.clone(), v));
             }
         }
     }
 
-    if raw.is_empty() {
-        return Ok(GradientResult {
-            map: HashMap::new(),
-            min: 0.0,
-            max: 0.0,
-        });
-    }
-
-    let min = raw.iter().map(|(_, v)| *v).fold(f64::INFINITY, f64::min);
-    let max = raw
-        .iter()
-        .map(|(_, v)| *v)
-        .fold(f64::NEG_INFINITY, f64::max);
-
-    let span = (max - min).abs();
     let mut map = HashMap::new();
-    for (id, v) in raw {
-        let n = if span < f64::EPSILON {
-            0.5
-        } else {
-            (v - min) / span
-        };
-        map.insert(id, n);
+    let mut ranges = HashMap::new();
+    for (label, raw) in by_label {
+        let min = raw.iter().map(|(_, v)| *v).fold(f64::INFINITY, f64::min);
+        let max = raw.iter().map(|(_, v)| *v).fold(f64::NEG_INFINITY, f64::max);
+        let span = (max - min).abs();
+        for (id, v) in raw {
+            let n = if span < f64::EPSILON { 0.5 } else { (v - min) / span };
+            map.insert(id, n);
+        }
+        ranges.insert(label, [min, max]);
     }
-    Ok(GradientResult { map, min, max })
+    Ok(GradientResult { map, ranges })
 }
 
 #[tauri::command]

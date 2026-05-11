@@ -142,6 +142,8 @@ pub struct GraphSummary {
     pub edge_labels: Vec<EdgeTypeStat>,
     pub metric_nodes: Vec<MetricRef>,
     pub measure_properties: Vec<String>,
+    /// Valid (metric, property) pairs reachable from each node label via "measures" edges.
+    pub measure_pairs: HashMap<String, Vec<MeasurePairInfo>>,
     pub has_implements: bool,
     pub dimensions: Vec<crate::color::DimensionInfo>,
 }
@@ -150,6 +152,14 @@ pub struct GraphSummary {
 pub struct MetricRef {
     pub id: String,
     pub name: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MeasurePairInfo {
+    pub metric_id: String,
+    pub metric_name: String,
+    pub property: String,
 }
 
 fn primary_label(n: &Node) -> &str {
@@ -170,6 +180,7 @@ fn summarize(elements: &Elements) -> GraphSummary {
     let mut edge_labels: HashMap<String, HashMap<(String, String), usize>> = HashMap::new();
     let mut has_implements = false;
     let mut measure_props: BTreeSet<String> = BTreeSet::new();
+    let mut measure_pairs: HashMap<String, Vec<MeasurePairInfo>> = HashMap::new();
     for e in &elements.edges {
         let s_lbl = by_id
             .get(e.source.as_str())
@@ -191,6 +202,31 @@ fn summarize(elements: &Elements) -> GraphSummary {
             for (k, v) in &e.properties {
                 if v.is_number() {
                     measure_props.insert(k.clone());
+                }
+            }
+            if !s_lbl.is_empty() {
+                if let Some(tgt) = by_id.get(e.target.as_str()).copied() {
+                    if primary_label(tgt) == "Metric" {
+                        let metric_name = tgt
+                            .properties
+                            .get("simpleName")
+                            .and_then(|v| v.as_str())
+                            .map(|s| s.to_string())
+                            .unwrap_or_else(|| tgt.id.clone());
+                        let pairs = measure_pairs.entry(s_lbl.to_string()).or_default();
+                        for (k, v) in &e.properties {
+                            if !v.is_number() {
+                                continue;
+                            }
+                            if !pairs.iter().any(|p| p.metric_id == e.target && p.property == *k) {
+                                pairs.push(MeasurePairInfo {
+                                    metric_id: e.target.clone(),
+                                    metric_name: metric_name.clone(),
+                                    property: k.clone(),
+                                });
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -242,6 +278,7 @@ fn summarize(elements: &Elements) -> GraphSummary {
         edge_labels: edge_label_stats,
         metric_nodes,
         measure_properties: measure_props.into_iter().collect(),
+        measure_pairs,
         has_implements,
         dimensions,
     }

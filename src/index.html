@@ -56,33 +56,9 @@
               <span class="panel-title">C · Coloring</span>
             </header>
             <div class="panel-body" id="panel-color-body">
-              <label class="radio-row">
-                <input type="radio" name="color-mode" value="none" checked />
-                <span>None (by node-type)</span>
-              </label>
-              <label class="radio-row">
-                <input type="radio" name="color-mode" value="dimension" />
-                <span>Categorical (dimension)</span>
-              </label>
-              <label class="radio-row">
-                <input type="radio" name="color-mode" value="gradient" />
-                <span>Gradient (measures)</span>
-              </label>
-              <div class="gradient-config" id="dimension-config" hidden>
-                <div id="dimension-levels"></div>
-                <div class="hint" id="dimension-hint" hidden>
-                  No :Dimension nodes in this graph.
-                </div>
-              </div>
-              <div class="gradient-config" id="gradient-config" hidden>
-                <label class="field">
-                  <span>Metric</span>
-                  <select id="metric-select"></select>
-                </label>
-                <label class="field">
-                  <span>Property</span>
-                  <select id="metric-prop-select"></select>
-                </label>
+              <div id="color-levels"></div>
+              <div class="hint" id="color-hint" hidden>
+                No nodes with dimension or metric associations.
               </div>
               <div id="legend" class="legend"></div>
             </div>
