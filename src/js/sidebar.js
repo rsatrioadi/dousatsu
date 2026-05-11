@@ -295,7 +295,12 @@ export class Sidebar {
   }
 
   _renderDimensionLevels() {
-    const ALLOWED = ["Scope", "Folder", "File", "Type", "Operation", "Variable"];
+    // Preferred top-down order; any labels outside this list are appended
+    // alphabetically so unfamiliar schemas still get rendered sensibly.
+    const PREFERRED_ORDER = [
+      "Project", "Scope", "Container", "Folder", "Package", "File",
+      "Type", "Structure", "Constructor", "Operation", "Variable", "Primitive",
+    ];
     const presentLabels = new Set(
       (this.summary.node_labels || []).map(([l]) => l)
     );
@@ -312,8 +317,21 @@ export class Sidebar {
     }
     hint.hidden = true;
 
-    for (const label of ALLOWED) {
-      if (!presentLabels.has(label)) continue;
+    // Union of every label that any dimension applies to.
+    const applicableLabels = new Set();
+    for (const d of dimensions) {
+      for (const l of d.applies_to || []) {
+        if (presentLabels.has(l)) applicableLabels.add(l);
+      }
+    }
+    const ordered = [
+      ...PREFERRED_ORDER.filter((l) => applicableLabels.has(l)),
+      ...[...applicableLabels]
+        .filter((l) => !PREFERRED_ORDER.includes(l))
+        .sort(),
+    ];
+
+    for (const label of ordered) {
       const applicable = dimensions.filter((d) =>
         (d.applies_to || []).includes(label)
       );
