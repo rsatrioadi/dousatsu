@@ -103,7 +103,10 @@ function baseStyle() {
         "text-outline-color": dark ? "#1e1e1e" : "#ffffff",
         "text-outline-width": 1.5,
         "text-outline-opacity": 0.8,
-        "background-color": "data(_fill)",
+        "background-fill": "linear-gradient",
+        "background-gradient-direction": "to-right",
+        "background-gradient-stop-colors": "data(_stop_colors)",
+        "background-gradient-stop-positions": "data(_stop_positions)",
         shape: "data(_shape)",
         "border-width": 1,
         "border-color": dark ? "#4a85be" : "#5a87b8",
@@ -172,19 +175,58 @@ function baseStyle() {
   ];
 }
 
-function fillFor(node, coloring) {
-  const lbl = node.label;
-  if (coloring && coloring.kind === "categorical" && coloring.byNode[node.id]) {
-    return coloring.palette[coloring.byNode[node.id]] || getThemeColor(lbl);
+/// Solid fill, expressed as a 1-stop gradient so the cytoscape style can stay uniform.
+function solidStops(color) {
+  return { colors: `${color} ${color}`, positions: "0% 100%" };
+}
+
+/// Hard-stop multi-segment gradient: each stop repeats at the segment boundary
+/// so adjacent colours don't blend.
+function sharpStops(segments) {
+  // segments: [{ color, fraction }] with fractions summing to ~1.
+  const colors = [];
+  const positions = [];
+  let acc = 0;
+  for (const seg of segments) {
+    const start = acc * 100;
+    acc += seg.fraction;
+    const end = acc * 100;
+    colors.push(seg.color, seg.color);
+    positions.push(`${start.toFixed(3)}%`, `${end.toFixed(3)}%`);
   }
+  return { colors: colors.join(" "), positions: positions.join(" ") };
+}
+
+function stopsFor(node, coloring) {
+  const lbl = node.label;
+
+  if (coloring && coloring.kind === "dimension") {
+    const stops = coloring.stopsByNode[node.id];
+    const dimId = coloring.dimensionByNode[node.id];
+    if (stops && stops.length && dimId) {
+      const palette = coloring.palettes[dimId] || {};
+      const segs = stops
+        .map((s) => ({
+          color: palette[s.category_id] || getThemeColor(lbl),
+          fraction: s.fraction,
+        }))
+        .filter((s) => s.fraction > 0);
+      if (segs.length === 1) return solidStops(segs[0].color);
+      if (segs.length > 1) return sharpStops(segs);
+    }
+    return solidStops(getThemeColor(lbl));
+  }
+
   if (coloring && coloring.kind === "gradient" && node.id in coloring.byNode) {
     const t = coloring.byNode[node.id];
-    return isDark() ? gradientDarkToBlue(t) : gradientWhiteToBlue(t);
+    const c = isDark() ? gradientDarkToBlue(t) : gradientWhiteToBlue(t);
+    return solidStops(c);
   }
   if (coloring && coloring.kind === "gradient") {
-    return isDark() ? "#333" : "#dcdcdc"; // unmeasured
+    return solidStops(isDark() ? "#333" : "#dcdcdc");
   }
-  return getThemeColor(lbl);
+
+  return solidStops(getThemeColor(lbl));
 }
 
 function shapeFor(node) {
@@ -231,18 +273,22 @@ export function runLayout(cy, opts = {}) {
 export function paintFocusedView(cy, view, coloring, layoutOpts = {}) {
   cy.elements().remove();
 
-  const nodes = view.nodes.map((n) => ({
+  const nodes = view.nodes.map((n) => {
+    const s = stopsFor(n, coloring);
+    return {
       group: "nodes",
       data: {
         id: n.id,
         name: n.name,
         _label: n.label,
         _role: n.role,
-        _fill: fillFor(n, coloring),
+        _stop_colors: s.colors,
+        _stop_positions: s.positions,
         _shape: COMPOUND_ROLES.has(n.role) ? "round-rectangle" : shapeFor(n),
-      parent: n.parent || undefined,
+        parent: n.parent || undefined,
       },
-  }));
+    };
+  });
 
   const edges = view.edges.map((e) => ({
     group: "edges",

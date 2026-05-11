@@ -26,7 +26,7 @@ pub fn run() {
             graph::get_node,
             graph::get_focused_view,
             color::compute_coloring_gradient,
-            color::compute_coloring_by_dimension,
+            color::compute_coloring_by_levels,
             color::list_dimensions,
         ])
         .run(tauri::generate_context!())
