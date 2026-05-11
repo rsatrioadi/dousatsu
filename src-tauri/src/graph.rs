@@ -143,6 +143,7 @@ pub struct GraphSummary {
     pub metric_nodes: Vec<MetricRef>,
     pub measure_properties: Vec<String>,
     pub has_implements: bool,
+    pub dimensions: Vec<crate::color::DimensionInfo>,
 }
 
 #[derive(Debug, Serialize)]
@@ -232,6 +233,8 @@ fn summarize(elements: &Elements) -> GraphSummary {
         })
         .collect();
 
+    let dimensions = crate::color::list_dimensions_for(elements);
+
     GraphSummary {
         node_count: elements.nodes.len(),
         edge_count: elements.edges.len(),
@@ -240,6 +243,7 @@ fn summarize(elements: &Elements) -> GraphSummary {
         metric_nodes,
         measure_properties: measure_props.into_iter().collect(),
         has_implements,
+        dimensions,
     }
 }
 
