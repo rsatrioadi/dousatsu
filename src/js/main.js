@@ -178,6 +178,8 @@ async function computeColoring(modeCfg) {
 
 function makeCategoricalPalette(ids) {
   // Distinct hues, soft saturation, fixed lightness — categorical-friendly.
+  // NB: no spaces inside hsl(...) so the value is safe to use inside cytoscape's
+  // space-separated background-gradient-stop-colors list.
   const out = {};
   const n = Math.max(1, ids.length);
   const dark = window.matchMedia("(prefers-color-scheme: dark)").matches;
@@ -185,7 +187,7 @@ function makeCategoricalPalette(ids) {
   const s = dark ? 45 : 55;
   for (let i = 0; i < ids.length; i++) {
     const h = Math.round((360 * i) / n);
-    out[ids[i]] = `hsl(${h}, ${s}%, ${l}%)`;
+    out[ids[i]] = `hsl(${h},${s}%,${l}%)`;
   }
   return out;
 }
